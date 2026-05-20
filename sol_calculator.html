@@ -367,6 +367,11 @@
       color: var(--bad);
     }
 
+    .status.neutral {
+      background: #eef2f7;
+      color: #344054;
+    }
+
     .table-wrap {
       width: 100%;
       overflow: auto;
@@ -413,6 +418,62 @@
       background: #eef5ff;
     }
 
+    .status-legend,
+    .table-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .status-legend {
+      margin-top: 10px;
+      font-weight: 650;
+    }
+
+    .status-scale {
+      display: grid;
+      grid-template-columns: minmax(180px, 360px) minmax(180px, 1fr);
+      gap: 10px 12px;
+      align-items: center;
+    }
+
+    .status-bar {
+      display: grid;
+      grid-template-columns: 3fr 1fr 54px;
+      height: 10px;
+      overflow: hidden;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .status-bar-ok {
+      background: var(--good);
+    }
+
+    .status-bar-tight {
+      background: var(--warn);
+    }
+
+    .status-bar-over {
+      background: var(--bad);
+    }
+
+    .status-scale-labels {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      align-items: center;
+    }
+
+    .status-scale-labels span {
+      white-space: nowrap;
+    }
+
+    .table-note {
+      margin: 7px 0 0;
+    }
+
     .formula {
       background: #0f172a;
       color: #e5e7eb;
@@ -431,6 +492,89 @@
       border-radius: 6px;
       color: #22324d;
       font-size: 13px;
+    }
+
+    .deadline-strip {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.6;
+    }
+
+    .deadline-strip strong {
+      color: var(--ink);
+      font-weight: 800;
+    }
+
+    .chart-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+    }
+
+    .chart-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      margin-bottom: 4px;
+    }
+
+    .chart-reset {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: #344054;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 4px 8px;
+      cursor: pointer;
+    }
+
+    .chart-panel svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      touch-action: none;
+      cursor: crosshair;
+      user-select: none;
+    }
+
+    .chart-hover {
+      min-height: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      margin-top: 4px;
+    }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-swatch {
+      width: 18px;
+      height: 3px;
+      border-radius: 999px;
+      background: var(--accent);
     }
 
     .caveats {
@@ -589,8 +733,12 @@
             <input id="rolloutGpusPerNode" type="number" min="1" step="1" value="8">
           </div>
           <div class="field">
-            <div class="label-line" data-tip="Theoretical per-GPU bidirectional send+recv aggregate bandwidth for intra-node allgather, in GB/s. Default is PCIe 4.0 x16: 32 GB/s each direction, 64 GB/s bidirectional."><label for="localAllgatherBw">Intra-node allgather bandwidth (GB/s per GPU, bidirectional)</label></div>
-            <input id="localAllgatherBw" type="number" min="0.1" step="1" value="64">
+            <div class="label-line" data-tip="B_rollout_intra: rollout-node-internal GPU fabric bandwidth for intra-node allgather, in GB/s per GPU bidirectional. This is PCIe/NVLink/NVSwitch, not the rollout cluster network."><label for="rolloutIntraBw">B_rollout_intra: intra-node GPU fabric (GB/s per GPU)</label></div>
+            <input id="rolloutIntraBw" type="number" min="0.1" step="1" value="64">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="B_rollout_inter: effective aggregate bandwidth between rollout physical nodes for the optimal sharded-scatter path. This is rollout-cluster east-west network capacity, not PCIe/NVLink inside one node."><label for="rolloutInterBw">B_rollout_inter: rollout inter-node collective (Gbps)</label></div>
+            <input id="rolloutInterBw" type="number" min="1" step="1" value="800">
           </div>
           <div class="field">
             <div class="label-line" data-tip="Measured or assumed p99 bucket for capture, preprocess, small transport lower bound, pack/unpack, and ser/deser before inference."><label for="obsP99">Observation pipeline p99 T_obs (s)</label></div>
@@ -612,7 +760,7 @@
       </details>
 
       <details open>
-        <summary>Cross-Cluster Network</summary>
+        <summary>Network / Weight Path</summary>
         <div class="group-body">
           <div class="field">
             <div class="label-line" data-tip="Total aggregate effective bandwidth per direction between train and rollout clusters, not per link. Replay uses rollout->train; weight sync uses train->rollout."><label for="crossBw">Cross-cluster aggregate bandwidth per direction (Gbps)</label></div>
@@ -620,15 +768,11 @@
             <span class="hint">Total aggregate effective bandwidth per direction; assumes symmetric full-duplex capacity.</span>
           </div>
           <div class="field">
-            <div class="label-line" data-tip="Effective aggregate rollout-cluster bandwidth for the optimal sharded-scatter path after the train cluster sends one model copy total."><label for="rolloutInternalBw">Rollout internal collective bandwidth (Gbps)</label></div>
-            <input id="rolloutInternalBw" type="number" min="1" step="1" value="800">
-          </div>
-          <div class="field">
-            <div class="label-line" data-tip="Direct sends full weights to every rollout GPU. Per-node scatter sends one model copy per physical node. Optimal sends one cross-cluster model copy total, then uses rollout-internal collective distribution."><label for="weightPath">Selected weight path for summary</label></div>
+            <div class="label-line" data-tip="Direct = direct per-GPU fanout. Node fanout = per-node scatter + allgather. Hierarchical = optimal sharded scatter + rollout inter-node collective."><label for="weightPath">Selected weight path for summary</label></div>
             <select id="weightPath">
-              <option value="optimal" selected>optimal sharded scatter + rollout collective</option>
-              <option value="node">per-node scatter + allgather</option>
-              <option value="direct">direct per-GPU fanout</option>
+              <option value="optimal" selected>Hierarchical</option>
+              <option value="node">Node fanout</option>
+              <option value="direct">Direct</option>
             </select>
           </div>
         </div>
@@ -703,6 +847,22 @@
       <section class="card">
         <h2>Top-Level Summary</h2>
         <div class="summary-grid" id="summaryGrid"></div>
+        <div class="status-legend">
+          <div class="status-scale" aria-label="Status threshold legend">
+            <div class="status-bar" aria-hidden="true">
+              <div class="status-bar-ok"></div>
+              <div class="status-bar-tight"></div>
+              <div class="status-bar-over"></div>
+            </div>
+            <div class="status-scale-labels">
+              <span><span class="status good">OK</span> <=75%</span>
+              <span><span class="status warn">Tight</span> 75-100%</span>
+              <span><span class="status bad">Over</span> >100%</span>
+              <span><span class="status neutral">Input</span> fixed</span>
+              <span><span class="status neutral">TBD</span> not modeled</span>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="card">
@@ -727,18 +887,19 @@
       </section>
 
       <section class="card" id="networkCard">
-        <h2>Cross-Cluster Bandwidth</h2>
+        <h2>Network Bandwidth</h2>
         <div class="callout">
-          Fixed hardware budget. B_cross is total aggregate effective bandwidth per direction.
+          Current network domains used by the SOL model; train-side bandwidth is listed as TBD.
         </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Path</th>
-                <th>Direction</th>
-                <th>Required bandwidth</th>
-                <th>Available aggregate bandwidth</th>
+                <th>Network domain</th>
+                <th>Symbol</th>
+                <th>Scope</th>
+                <th>Current value</th>
+                <th>Used by</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -796,41 +957,51 @@
             <thead>
               <tr>
                 <th>Path</th>
-                <th>Cross-cluster bytes/version</th>
+                <th>Cross comm volume</th>
                 <th>Cross payload per receiver</th>
-                <th>Cross-cluster time</th>
-                <th>Rollout internal time</th>
-                <th>Local allgather recv/GPU</th>
-                <th>Local send+recv/GPU</th>
-                <th>Local time</th>
-                <th>Total no pipeline</th>
-                <th>Total pipelined lower bound</th>
+                <th>Cross time</th>
+                <th>Rollout inter time</th>
+                <th>Rollout intra recv/GPU</th>
+                <th>Rollout intra send+recv/GPU</th>
+                <th>Rollout intra time</th>
+                <th>SoL ref (sum)</th>
+                <th>Pipelined LB</th>
                 <th>Reduction vs direct</th>
               </tr>
             </thead>
             <tbody id="fanoutTable"></tbody>
           </table>
         </div>
+        <p class="table-note">Path names: Direct = direct per-GPU fanout; Node fanout = per-node scatter + allgather; Hierarchical = optimal sharded scatter + rollout inter-node collective.</p>
 
         <h3>Version Lag Requirement</h3>
+        <div class="deadline-strip" id="deadlineStrip"></div>
+        <div class="chart-panel" id="weightSyncChart"></div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Path</th>
-                <th>L</th>
-                <th>Deadline</th>
-                <th>Local time</th>
-                <th>Required B_cross</th>
-                <th>Required B_rollout_internal</th>
-                <th>Available B_cross</th>
-                <th>Available B_rollout_internal</th>
-                <th>Status</th>
+                <th>Cross comm volume</th>
+                <th>Cross time</th>
+                <th>Rollout inter comm volume</th>
+                <th>Rollout inter time</th>
+                <th>Rollout intra comm volume/GPU</th>
+                <th>Rollout intra time</th>
+                <th>Required B_cross @ L=1</th>
+                <th>Required B_cross @ L=2</th>
+                <th>Required B_cross @ L=4</th>
+                <th>Required B_cross @ L=8</th>
+                <th>Pipelined LB</th>
+                <th>SoL ref (sum)</th>
+                <th>Satisfied L</th>
+                <th>Status @ selected L</th>
               </tr>
             </thead>
             <tbody id="lagTable"></tbody>
           </table>
         </div>
+        <p class="table-note">Version Lag uses SoL ref (sum) for deadline checks and required B_cross. Pipelined LB is the optimistic max(cross, rollout inter, rollout intra) lower bound.</p>
       </section>
 
       <section class="card">
@@ -881,33 +1052,30 @@ per_full_rollout_gpu_steps_per_sec = K_env * f
 direct_weight_bytes = N_rollout_gpu * W
 node_scatter_bytes = M_rollout * W
 B_cross = total aggregate effective bandwidth per direction
-local_allgather_recv_per_gpu_i = (r_i - 1) / r_i * W
-local_allgather_send_recv_per_gpu_i = 2 * local_allgather_recv_per_gpu_i
-local_allgather_critical = max_i(local_allgather_send_recv_per_gpu_i / B_local_allgather_bidirectional_GBps)
+rollout_intra_recv_per_gpu_i = (r_i - 1) / r_i * W
+rollout_intra_send_recv_per_gpu_i = 2 * rollout_intra_recv_per_gpu_i
+rollout_intra_critical = max_i(rollout_intra_send_recv_per_gpu_i / B_rollout_intra)
 optimal_cross_bytes = W
-optimal_rollout_internal_bytes = (M_rollout - 1) * W
-B_rollout_collective = total effective aggregate rollout-internal collective bandwidth
-T_local_allgather = local_allgather_critical
+optimal_rollout_inter_bytes = (M_rollout - 1) * W
+B_rollout_inter = total effective aggregate rollout inter-node collective bandwidth
+T_rollout_intra = rollout_intra_critical
 T_sync_direct = direct_weight_bytes * 8 / B_cross
 T_sync_node_cross = node_scatter_bytes * 8 / B_cross
-T_sync_node_no_pipeline = T_sync_node_cross + local_allgather_critical
-T_sync_node_pipeline_lb = max(T_sync_node_cross, local_allgather_critical)
+T_sync_node_no_pipeline = T_sync_node_cross + rollout_intra_critical
+T_sync_node_pipeline_lb = max(T_sync_node_cross, rollout_intra_critical)
 T_sync_optimal_cross = W * 8 / B_cross
-T_sync_optimal_rollout = optimal_rollout_internal_bytes * 8 / B_rollout_collective
-T_sync_optimal_no_pipeline = T_sync_optimal_cross + T_sync_optimal_rollout + local_allgather_critical
-T_sync_optimal_pipeline_lb = max(T_sync_optimal_cross, T_sync_optimal_rollout, local_allgather_critical)
+T_sync_optimal_rollout_inter = optimal_rollout_inter_bytes * 8 / B_rollout_inter
+T_sync_optimal_no_pipeline = T_sync_optimal_cross + T_sync_optimal_rollout_inter + rollout_intra_critical
+T_sync_optimal_pipeline_lb = max(T_sync_optimal_cross, T_sync_optimal_rollout_inter, rollout_intra_critical)
 
 T_update = K * H / f
 deadline = L * T_update
-required_B_cross_direct = direct_weight_bytes * 8 / deadline
-required_B_cross_node_lb = node_scatter_bytes * 8 / deadline
-required_B_cross_optimal_lb = W * 8 / deadline
-required_B_rollout_collective_optimal_lb = optimal_rollout_internal_bytes * 8 / deadline
-T_sync_lb_direct = T_sync_direct
-T_sync_lb_node = max(T_sync_node_cross, local_allgather_critical)
-T_sync_lb_optimal = max(T_sync_optimal_cross, T_sync_optimal_rollout, local_allgather_critical)
-T_sync_lb_selected = direct, node, or optimal lower bound for selected path
-min_L_for_sync_lb = max(1, ceil(T_sync_lb_selected / T_update))
+fixed_rollout_time = T_rollout_inter + T_rollout_intra
+required_B_cross_sum_ref = cross_comm_volume * 8 / (deadline - fixed_rollout_time)
+T_sync_pipelined_lb = max(T_cross, T_rollout_inter, T_rollout_intra)
+T_sync_sum_ref = T_cross + T_rollout_inter + T_rollout_intra
+T_sync_selected = direct, node, or hierarchical sum reference for selected path
+min_L_for_sync_ref = max(1, ceil(T_sync_selected / T_update))
 replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       </section>
 
@@ -932,6 +1100,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
     const LAGS = [1, 2, 4, 8];
     const tooltipLayer = $("tooltipLayer");
     let activeTooltipTarget = null;
+    let weightChartRange = null;
 
     function positionTooltip(target) {
       if (!target || !tooltipLayer.classList.contains("visible")) return;
@@ -1035,9 +1204,9 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
     }
 
     function weightPathLabel(path) {
-      if (path === "direct") return "direct";
-      if (path === "node") return "node scatter + allgather";
-      return "optimal sharded scatter + rollout collective";
+      if (path === "direct") return "Direct";
+      if (path === "node") return "Node fanout";
+      return "Hierarchical";
     }
 
     function capacityClass(required, capacity) {
@@ -1117,13 +1286,13 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         K: updateKHorizons,
         KEnv: Math.max(numberValue("robotsPerGpu", 1), 1),
         G: Math.max(numberValue("rolloutGpusPerNode", 8), 1),
-        BLocal: Math.max(numberValue("localAllgatherBw", 64), 0.001),
+        BRolloutIntra: Math.max(numberValue("rolloutIntraBw", 64), 0.001),
         obsP99: numberValue("obsP99", 0.01),
         inferP99: numberValue("inferP99", 0.15),
         actionP99: numberValue("actionP99", 0.01),
         jitterP99: numberValue("jitterP99", 0.05),
         BCross: Math.max(numberValue("crossBw", 400), 0.001),
-        BRollout: Math.max(numberValue("rolloutInternalBw", 800), 0.001),
+        BRolloutInter: Math.max(numberValue("rolloutInterBw", 800), 0.001),
         weightPath: selectValue("weightPath"),
         Tgpu: Math.max(numberValue("trainGpus", 32), 1),
         Gtrain: Math.max(numberValue("trainGpusPerNode", 8), 1),
@@ -1172,30 +1341,33 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       const nodeScatterBytesGB = Mrollout * input.W;
       const nodeShardMinGB = input.W / maxNodeRanks;
       const nodeShardMaxGB = input.W / minNodeRanks;
-      const localRecvPerGpuGB = maxNodeRanks <= 1 ? 0 : (maxNodeRanks - 1) / maxNodeRanks * input.W;
-      const localSendRecvPerGpuGB = 2 * localRecvPerGpuGB;
-      const localAllgatherSec = localSendRecvPerGpuGB / input.BLocal;
+      const rolloutIntraRecvPerGpuGB = maxNodeRanks <= 1 ? 0 : (maxNodeRanks - 1) / maxNodeRanks * input.W;
+      const rolloutIntraSendRecvPerGpuGB = 2 * rolloutIntraRecvPerGpuGB;
+      const rolloutIntraSec = rolloutIntraSendRecvPerGpuGB / input.BRolloutIntra;
       const directCrossSec = directBytesGB * 8 / input.BCross;
       const nodeCrossSec = nodeScatterBytesGB * 8 / input.BCross;
       const directNoPipelineSec = directCrossSec;
       const directPipelinedSec = directCrossSec;
-      const nodeNoPipelineSec = nodeCrossSec + localAllgatherSec;
-      const nodePipelinedSec = Math.max(nodeCrossSec, localAllgatherSec);
+      const nodeNoPipelineSec = nodeCrossSec + rolloutIntraSec;
+      const nodePipelinedSec = Math.max(nodeCrossSec, rolloutIntraSec);
       const optimalCrossBytesGB = input.W;
-      const optimalRolloutBytesGB = Math.max(Mrollout - 1, 0) * input.W;
+      const optimalRolloutInterBytesGB = Math.max(Mrollout - 1, 0) * input.W;
       const optimalCrossSec = optimalCrossBytesGB * 8 / input.BCross;
-      const optimalRolloutSec = optimalRolloutBytesGB * 8 / input.BRollout;
-      const optimalNoPipelineSec = optimalCrossSec + optimalRolloutSec + localAllgatherSec;
-      const optimalPipelinedSec = Math.max(optimalCrossSec, optimalRolloutSec, localAllgatherSec);
+      const optimalRolloutInterSec = optimalRolloutInterBytesGB * 8 / input.BRolloutInter;
+      const optimalNoPipelineSec = optimalCrossSec + optimalRolloutInterSec + rolloutIntraSec;
+      const optimalPipelinedSec = Math.max(optimalCrossSec, optimalRolloutInterSec, rolloutIntraSec);
       const selectedCrossBytesGB = input.weightPath === "direct" ? directBytesGB : input.weightPath === "node" ? nodeScatterBytesGB : optimalCrossBytesGB;
-      const selectedRolloutBytesGB = input.weightPath === "optimal" ? optimalRolloutBytesGB : 0;
-      const weightSyncLowerBoundSec = input.weightPath === "direct" ? directPipelinedSec : input.weightPath === "node" ? nodePipelinedSec : optimalPipelinedSec;
+      const selectedRolloutInterBytesGB = input.weightPath === "optimal" ? optimalRolloutInterBytesGB : 0;
+      const selectedRolloutInterSec = input.weightPath === "optimal" ? optimalRolloutInterSec : 0;
+      const selectedRolloutIntraBytesGB = input.weightPath === "direct" ? 0 : rolloutIntraSendRecvPerGpuGB;
+      const selectedRolloutIntraSec = input.weightPath === "direct" ? 0 : rolloutIntraSec;
+      const selectedPipelinedSec = input.weightPath === "direct" ? directPipelinedSec : input.weightPath === "node" ? nodePipelinedSec : optimalPipelinedSec;
+      const selectedSumSec = input.weightPath === "direct" ? directNoPipelineSec : input.weightPath === "node" ? nodeNoPipelineSec : optimalNoPipelineSec;
       const policyDeadline = input.L * input.updatePeriod;
-      const weightRequiredGbps = requiredCrossGbps(selectedCrossBytesGB, policyDeadline);
-      const rolloutRequiredGbps = selectedRolloutBytesGB > 0 ? selectedRolloutBytesGB * 8 / policyDeadline : 0;
+      const weightRequiredGbps = requiredCrossGbps(selectedCrossBytesGB, policyDeadline, selectedRolloutInterSec + selectedRolloutIntraSec);
       const replayGbps = activeReplayMBps * 8 / 1000;
-      const minL = Math.max(1, Math.ceil(weightSyncLowerBoundSec / input.updatePeriod));
-      const weightSyncOnlySec = weightSyncLowerBoundSec;
+      const minL = Math.max(1, Math.ceil(selectedSumSec / input.updatePeriod));
+      const weightSyncOnlySec = selectedSumSec;
       const horizonsPerUpdate = input.N * input.K;
       const stepsPerUpdate = input.N * input.K * input.H;
 
@@ -1233,12 +1405,17 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         nodeShardMinGB,
         nodeShardMaxGB,
         optimalCrossBytesGB,
-        optimalRolloutBytesGB,
+        optimalRolloutInterBytesGB,
         selectedCrossBytesGB,
-        selectedRolloutBytesGB,
-        localRecvPerGpuGB,
-        localSendRecvPerGpuGB,
-        localAllgatherSec,
+        selectedRolloutInterBytesGB,
+        selectedRolloutInterSec,
+        selectedRolloutIntraBytesGB,
+        selectedRolloutIntraSec,
+        selectedPipelinedSec,
+        selectedSumSec,
+        rolloutIntraRecvPerGpuGB,
+        rolloutIntraSendRecvPerGpuGB,
+        rolloutIntraSec,
         directCrossSec,
         nodeCrossSec,
         directNoPipelineSec,
@@ -1246,14 +1423,14 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         nodeNoPipelineSec,
         nodePipelinedSec,
         optimalCrossSec,
-        optimalRolloutSec,
+        optimalRolloutInterSec,
         optimalNoPipelineSec,
         optimalPipelinedSec,
         weightRequiredGbps,
-        rolloutRequiredGbps,
         replayGbps,
         minL,
-        weightSyncLowerBoundSec,
+        weightSyncLowerBoundSec: selectedPipelinedSec,
+        weightSyncRefSec: selectedSumSec,
         weightSyncOnlySec,
         policyDeadline,
         horizonsPerUpdate,
@@ -1307,11 +1484,11 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         archNode("Rollout / Inference Cluster", `${fmtInt(data.Mrollout)} nodes`, [
           `${fmtInt(input.G)} rollout GPUs/node`,
           `${fmtInt(data.rolloutGpuCount)} rollout GPUs total`,
-          `${fmtGBps(input.BLocal)} intra-node allgather`
+          `${fmtGBps(input.BRolloutIntra)} B_rollout_intra`
         ]),
         archLink("Cross-cluster fabric", [
           `${fmtGbps(input.BCross)} per direction`,
-          `${fmtGbps(input.BRollout)} rollout internal collective`
+          `${fmtGbps(input.BRolloutInter)} B_rollout_inter`
         ]),
         archNode("Train Cluster", `${fmtInt(data.Mtrain)} nodes`, [
           `${fmtInt(input.Gtrain)} train GPUs/node`,
@@ -1324,10 +1501,10 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
     function renderSummary(input, data) {
       const rtcStatus = data.rtcCriticalPath <= data.rtcLookahead ? "good" : "bad";
       const activeMode = input.replayUnit === "step" ? "step replay" : "chunk replay";
-      const rolloutCollectiveText = input.weightPath === "optimal" ? fmtGbps(data.rolloutRequiredGbps) : "N/A";
+      const rolloutCollectiveText = input.weightPath === "optimal" ? fmtSeconds(data.selectedRolloutInterSec) : "N/A";
       const rolloutCollectiveSub = input.weightPath === "optimal"
-        ? `${capacityStatus(data.rolloutRequiredGbps, input.BRollout)} capacity ${fmtGbps(input.BRollout)}`
-        : "selected path does not use rollout-internal collective";
+        ? `${fmtGB(data.selectedRolloutInterBytesGB)} over fixed ${fmtGbps(input.BRolloutInter)} B_rollout_inter`
+        : "selected path does not use B_rollout_inter";
 
       $("summaryGrid").innerHTML = [
         metric("Rollout cluster", `${fmtInt(data.Mrollout)} nodes`, `${fmtInt(data.rolloutGpuCount)} GPUs for ${fmtInt(input.N)} robots; K_env=${fmtInt(input.KEnv)}`),
@@ -1336,9 +1513,9 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         metric("Replay / rollout GPU", fmtMBps(data.avgActiveReplayMBpsPerGpu), `${fmtInt(data.fullGpuReplayStepsPerSec)} primitive steps/s on a full rollout GPU`),
         metric("FIFO", `${fmt(data.horizonsPerSec)} horizons/s`, `${fmtInt(data.representedSteps)} primitive steps/s`),
         metric("Weight cross downlink", fmtRequiredGbps(data.weightRequiredGbps), `${capacityStatus(data.weightRequiredGbps, input.BCross)} cross capacity ${fmtGbps(input.BCross)}`),
-        metric("Rollout collective", rolloutCollectiveText, rolloutCollectiveSub),
-        metric("Weight sync lower bound", fmtSeconds(data.weightSyncOnlySec), `selected L-version deadline ${fmtSeconds(data.policyDeadline)} (L=${fmt(input.L)}); excludes T_train/T_export/T_apply`),
-        metric("Min L for sync lower bound", data.minL <= 8 ? `L=${data.minL}` : `L>${fmtInt(8)}`, `selected path: ${weightPathLabel(input.weightPath)}`),
+        metric("B_rollout_inter", rolloutCollectiveText, rolloutCollectiveSub),
+        metric("Weight sync SoL ref", fmtSeconds(data.weightSyncOnlySec), `sum reference; pipelined LB ${fmtSeconds(data.selectedPipelinedSec)}; deadline ${fmtSeconds(data.policyDeadline)} (L=${fmt(input.L)})`),
+        metric("Min L for SoL ref", data.minL <= 8 ? `L=${data.minL}` : `L>${fmtInt(8)}`, `selected path: ${weightPathLabel(input.weightPath)}; excludes T_train/T_export/T_apply`),
         metric("RTC lookahead", fmtSeconds(data.rtcLookahead), `${statusPill(rtcStatus === "good" ? "OK" : "Over", rtcStatus)} RTC next-chunk critical path ${fmtSeconds(data.rtcCriticalPath)}`)
       ].join("");
     }
@@ -1352,8 +1529,8 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         row(["Rollout GPUs", fmtInt(data.rolloutGpuCount), "ceil(N_robot / K_env)"]),
         row(["Rollout GPUs/node", fmtInt(input.G), "G_max, default 8"]),
         row(["Active rollout ranks/node", `${fmtInt(data.maxNodeRanks)} max; ${fmtInt(data.minNodeRanks)} min`, "partial tail nodes use actual active ranks"]),
-        row(["Intra-node allgather bandwidth", fmtGBps(input.BLocal), "per-GPU bidirectional, PCIe 4.0 x16 theoretical default"]),
-        row(["Rollout internal collective bandwidth", fmtGbps(input.BRollout), "effective aggregate rollout-cluster collective bandwidth"]),
+        row(["B_rollout_intra", fmtGBps(input.BRolloutIntra), "rollout node intra-GPU fabric; PCIe/NVLink/NVSwitch"]),
+        row(["B_rollout_inter", fmtGbps(input.BRolloutInter), "rollout cluster inter-node collective network"]),
         row(["Rollout nodes", fmtInt(data.Mrollout), "ceil(N_rollout_gpu / G_max)"]),
         row(["Replay pressure / full rollout GPU", `${fmtInt(data.fullGpuReplayStepsPerSec)} primitive steps/s`, `K_env * f; tail GPU ${fmtInt(data.tailGpuReplayStepsPerSec)} primitive steps/s`]),
         row(["Train GPUs", fmtInt(input.Tgpu), "input T_gpu"]),
@@ -1409,7 +1586,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       const optimalReduction = data.directBytesGB / data.optimalCrossBytesGB;
       setRows("fanoutTable", [
         row([
-          "Direct per-GPU",
+          "Direct",
           fmtGB(data.directBytesGB),
           `${fmtGB(input.W)} / rollout GPU`,
           fmtSeconds(data.directCrossSec),
@@ -1422,27 +1599,27 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
           "1.0x"
         ], input.weightPath === "direct" ? "active-row" : ""),
         row([
-          "Per-node scatter + allgather",
+          "Node fanout",
           fmtGB(data.nodeScatterBytesGB),
           `${fmtGBRange(data.nodeShardMinGB, data.nodeShardMaxGB)} / active GPU`,
           fmtSeconds(data.nodeCrossSec),
           "N/A",
-          fmtGB(data.localRecvPerGpuGB),
-          fmtGB(data.localSendRecvPerGpuGB),
-          fmtSeconds(data.localAllgatherSec),
+          fmtGB(data.rolloutIntraRecvPerGpuGB),
+          fmtGB(data.rolloutIntraSendRecvPerGpuGB),
+          fmtSeconds(data.rolloutIntraSec),
           fmtSeconds(data.nodeNoPipelineSec),
           fmtSeconds(data.nodePipelinedSec),
           `${fmt(nodeReduction, 1)}x`
         ], input.weightPath === "node" ? "active-row" : ""),
         row([
-          "Optimal sharded scatter + rollout collective",
+          "Hierarchical",
           fmtGB(data.optimalCrossBytesGB),
           `${fmtGB(data.optimalCrossBytesGB / data.Mrollout)} / rollout node`,
           fmtSeconds(data.optimalCrossSec),
-          fmtSeconds(data.optimalRolloutSec),
-          fmtGB(data.localRecvPerGpuGB),
-          fmtGB(data.localSendRecvPerGpuGB),
-          fmtSeconds(data.localAllgatherSec),
+          fmtSeconds(data.optimalRolloutInterSec),
+          fmtGB(data.rolloutIntraRecvPerGpuGB),
+          fmtGB(data.rolloutIntraSendRecvPerGpuGB),
+          fmtSeconds(data.rolloutIntraSec),
           fmtSeconds(data.optimalNoPipelineSec),
           fmtSeconds(data.optimalPipelinedSec),
           `${fmt(optimalReduction, 1)}x`
@@ -1450,63 +1627,328 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       ]);
     }
 
+    function weightPathSpecs(data) {
+      return [
+        {
+          key: "direct",
+          label: "Direct",
+          color: "#2563eb",
+          crossBytesGB: data.directBytesGB,
+          interBytesGB: 0,
+          interSec: 0,
+          intraBytesGB: 0,
+          intraSec: 0
+        },
+        {
+          key: "node",
+          label: "Node fanout",
+          color: "#0f8a52",
+          crossBytesGB: data.nodeScatterBytesGB,
+          interBytesGB: 0,
+          interSec: 0,
+          intraBytesGB: data.rolloutIntraSendRecvPerGpuGB,
+          intraSec: data.rolloutIntraSec
+        },
+        {
+          key: "optimal",
+          label: "Hierarchical",
+          color: "#a46400",
+          crossBytesGB: data.optimalCrossBytesGB,
+          interBytesGB: data.optimalRolloutInterBytesGB,
+          interSec: data.optimalRolloutInterSec,
+          intraBytesGB: data.rolloutIntraSendRecvPerGpuGB,
+          intraSec: data.rolloutIntraSec
+        }
+      ];
+    }
+
+    function pathCrossSec(path, bCrossGbps) {
+      return path.crossBytesGB * 8 / Math.max(bCrossGbps, 0.001);
+    }
+
+    function pathPipelinedSec(path, bCrossGbps) {
+      return Math.max(pathCrossSec(path, bCrossGbps), path.interSec, path.intraSec);
+    }
+
+    function pathSumSec(path, bCrossGbps) {
+      return pathCrossSec(path, bCrossGbps) + path.interSec + path.intraSec;
+    }
+
+    function requiredCrossForDeadline(path, deadlineSec) {
+      const fixedSec = path.interSec + path.intraSec;
+      const crossWindow = deadlineSec - fixedSec;
+      if (crossWindow <= 0) return Infinity;
+      return path.crossBytesGB * 8 / crossWindow;
+    }
+
+    function satisfiedLag(path, input) {
+      const currentSec = pathSumSec(path, input.BCross);
+      const lag = LAGS.find((candidate) => currentSec <= candidate * input.updatePeriod);
+      return lag ? `L=${lag}` : "L>8";
+    }
+
+    function renderDeadlineStrip(input) {
+      const deadlines = LAGS.map((lag) => `L=${lag}: ${fmtSeconds(lag * input.updatePeriod)}`).join(", ");
+      $("deadlineStrip").innerHTML = [
+        `<strong>Fixed:</strong> B_cross=${fmtGbps(input.BCross)}, B_rollout_inter=${fmtGbps(input.BRolloutInter)}, B_rollout_intra=${fmtGBps(input.BRolloutIntra)}`,
+        `<strong>Deadlines:</strong> ${deadlines}`,
+        `<strong>Reference:</strong> SoL ref=sum(cross, rollout inter, rollout intra); pipelined LB=max(...)`
+      ].join(" | ");
+    }
+
     function renderLag(input, data) {
-      const rows = [];
-      LAGS.forEach((lag) => {
-        const deadline = lag * input.updatePeriod;
-        const directCross = data.directBytesGB * 8 / deadline;
-        rows.push(row([
-          "Direct per-GPU",
-          `L=${lag}`,
-          fmtSeconds(deadline),
-          "N/A",
-          fmtRequiredGbps(directCross),
-          "N/A",
-          fmtGbps(input.BCross),
-          "N/A",
-          pathStatus(directCross, input.BCross, 0, input.BRollout, 0, deadline)
-        ], input.weightPath === "direct" && lag === input.L ? "active-row" : ""));
-
-        const nodeCross = data.nodeScatterBytesGB * 8 / deadline;
-        rows.push(row([
-          "Per-node scatter + allgather",
-          `L=${lag}`,
-          fmtSeconds(deadline),
-          fmtSeconds(data.localAllgatherSec),
-          fmtRequiredGbps(nodeCross),
-          "N/A",
-          fmtGbps(input.BCross),
-          "N/A",
-          pathStatus(nodeCross, input.BCross, 0, input.BRollout, data.localAllgatherSec, deadline)
-        ], input.weightPath === "node" && lag === input.L ? "active-row" : ""));
-
-        const optimalCross = data.optimalCrossBytesGB * 8 / deadline;
-        const optimalRollout = data.optimalRolloutBytesGB * 8 / deadline;
-        rows.push(row([
-          "Optimal sharded scatter + rollout collective",
-          `L=${lag}`,
-          fmtSeconds(deadline),
-          fmtSeconds(data.localAllgatherSec),
-          fmtRequiredGbps(optimalCross),
-          fmtRequiredGbps(optimalRollout),
-          fmtGbps(input.BCross),
-          fmtGbps(input.BRollout),
-          pathStatus(optimalCross, input.BCross, optimalRollout, input.BRollout, data.localAllgatherSec, deadline)
-        ], input.weightPath === "optimal" && lag === input.L ? "active-row" : ""));
+      renderDeadlineStrip(input);
+      const rows = weightPathSpecs(data).map((path) => {
+        const crossSec = pathCrossSec(path, input.BCross);
+        const pipelinedSec = pathPipelinedSec(path, input.BCross);
+        const sumSec = pathSumSec(path, input.BCross);
+        const selectedDeadline = input.L * input.updatePeriod;
+        const requiredByLag = LAGS.map((lag) => fmtRequiredGbps(requiredCrossForDeadline(path, lag * input.updatePeriod)));
+        return row([
+          path.label,
+          fmtGB(path.crossBytesGB),
+          fmtSeconds(crossSec),
+          path.interBytesGB > 0 ? fmtGB(path.interBytesGB) : "N/A",
+          path.interBytesGB > 0 ? fmtSeconds(path.interSec) : "N/A",
+          path.intraBytesGB > 0 ? fmtGB(path.intraBytesGB) : "N/A",
+          path.intraBytesGB > 0 ? fmtSeconds(path.intraSec) : "N/A",
+          ...requiredByLag,
+          fmtSeconds(pipelinedSec),
+          fmtSeconds(sumSec),
+          satisfiedLag(path, input),
+          timingStatus(sumSec, selectedDeadline)
+        ], input.weightPath === path.key ? "active-row" : "");
       });
       setRows("lagTable", rows);
+      renderWeightSyncChart(input, data);
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
+
+    function chartBandwidthAtX(svgX, cfg) {
+      const ratio = clamp((svgX - cfg.pad.left) / cfg.plotW, 0, 1);
+      return cfg.bMin * Math.pow(cfg.bMax / cfg.bMin, ratio);
+    }
+
+    function chartSvgX(event, svg, width) {
+      const rect = svg.getBoundingClientRect();
+      if (!rect.width) return 0;
+      return (event.clientX - rect.left) / rect.width * width;
+    }
+
+    function setWeightChartRange(nextMin, nextMax) {
+      const min = Math.max(0.001, Math.min(nextMin, nextMax));
+      const max = Math.max(min * 1.2, Math.max(nextMin, nextMax));
+      weightChartRange = { bMin: min, bMax: max };
+    }
+
+    function renderWeightSyncChart(input, data) {
+      const paths = weightPathSpecs(data);
+      const selectedDeadline = input.L * input.updatePeriod;
+      const autoBMax = Math.max(
+        input.BCross * 2,
+        ...paths.map((path) => requiredCrossForDeadline(path, input.updatePeriod)).filter(Number.isFinite),
+        100
+      );
+      const autoBMin = Math.max(1, autoBMax / 100);
+      const bMin = weightChartRange ? Math.max(0.001, weightChartRange.bMin) : autoBMin;
+      const bMax = weightChartRange ? Math.max(weightChartRange.bMax, bMin * 1.2) : autoBMax;
+      const sampleCount = 100;
+      const sampledTimes = [];
+      paths.forEach((path) => {
+        for (let index = 0; index < sampleCount; index += 1) {
+          const t = index / (sampleCount - 1);
+          const b = bMin * Math.pow(bMax / bMin, t);
+          sampledTimes.push(pathSumSec(path, b), pathPipelinedSec(path, b));
+        }
+      });
+      const yMax = Math.max(...sampledTimes, ...LAGS.map((lag) => lag * input.updatePeriod), selectedDeadline) * 1.12;
+      const width = 900;
+      const height = 260;
+      const pad = { left: 58, right: 18, top: 14, bottom: 40 };
+      const plotW = width - pad.left - pad.right;
+      const plotH = height - pad.top - pad.bottom;
+      const logMin = Math.log10(bMin);
+      const logMax = Math.log10(bMax);
+      const x = (b) => pad.left + (Math.log10(b) - logMin) / (logMax - logMin) * plotW;
+      const y = (sec) => pad.top + (1 - Math.min(sec, yMax) / yMax) * plotH;
+      const lineFor = (path) => Array.from({ length: sampleCount }, (_, index) => {
+        const t = index / (sampleCount - 1);
+        const b = bMin * Math.pow(bMax / bMin, t);
+        return `${x(b).toFixed(1)},${y(pathSumSec(path, b)).toFixed(1)}`;
+      }).join(" ");
+      const xTicks = [bMin, Math.sqrt(bMin * bMax), bMax];
+      const yTicks = [0, yMax / 2, yMax];
+      const deadlineLines = LAGS.map((lag) => {
+        const yy = y(lag * input.updatePeriod);
+        return `<line x1="${pad.left}" y1="${yy}" x2="${width - pad.right}" y2="${yy}" stroke="#d0d7e2" stroke-dasharray="4 5"/><text x="${width - pad.right - 4}" y="${yy - 4}" text-anchor="end" fill="#657085" font-size="11">L=${lag}</text>`;
+      }).join("");
+      const currentX = x(Math.min(Math.max(input.BCross, bMin), bMax));
+      const pathLines = paths.map((path) => (
+        `<polyline fill="none" stroke="${path.color}" stroke-width="2.5" points="${lineFor(path)}"/>`
+      )).join("");
+      const legend = paths.map((path) => (
+        `<span class="legend-item"><span class="legend-swatch" style="background:${path.color}"></span>${path.label}</span>`
+      )).join("");
+      $("weightSyncChart").innerHTML = [
+        `<div class="chart-actions"><span>Lines show SoL ref (sum). Wheel zoom, drag select, hover values, double-click reset.</span><button type="button" class="chart-reset" id="chartReset">Reset</button></div>`,
+        `<svg id="weightSyncSvg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Weight sync sum reference by cross-cluster bandwidth">`,
+        `<rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/>`,
+        yTicks.map((tick) => `<line x1="${pad.left}" y1="${y(tick)}" x2="${width - pad.right}" y2="${y(tick)}" stroke="#edf1f6"/><text x="${pad.left - 8}" y="${y(tick) + 4}" text-anchor="end" fill="#657085" font-size="11">${fmtSeconds(tick)}</text>`).join(""),
+        xTicks.map((tick) => `<line x1="${x(tick)}" y1="${pad.top}" x2="${x(tick)}" y2="${height - pad.bottom}" stroke="#edf1f6"/><text x="${x(tick)}" y="${height - 20}" text-anchor="middle" fill="#657085" font-size="11">${fmtGbps(tick)}</text>`).join(""),
+        deadlineLines,
+        `<line x1="${currentX}" y1="${pad.top}" x2="${currentX}" y2="${height - pad.bottom}" stroke="#172033" stroke-dasharray="5 5"/>`,
+        `<text x="${currentX + 5}" y="${pad.top + 13}" fill="#172033" font-size="11">current B_cross</text>`,
+        pathLines,
+        `<rect id="chartSelection" x="0" y="${pad.top}" width="0" height="${plotH}" fill="#2563eb" opacity="0.12" visibility="hidden"/>`,
+        `<rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}" fill="transparent"/>`,
+        `<line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" stroke="#9aa4b2"/>`,
+        `<line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" stroke="#9aa4b2"/>`,
+        `<text x="${width / 2}" y="${height - 4}" text-anchor="middle" fill="#344054" font-size="12">B_cross bandwidth (Gbps, log scale)</text>`,
+        `<text transform="translate(14 ${height / 2}) rotate(-90)" text-anchor="middle" fill="#344054" font-size="12">SoL ref time (sum)</text>`,
+        `</svg>`,
+        `<div class="chart-hover" id="weightSyncHover">Hover over plot for values.</div>`,
+        `<div class="chart-legend">${legend}</div>`
+      ].join("");
+      bindWeightChartInteractions(input, data, { width, pad, plotW, bMin, bMax });
+    }
+
+    function bindWeightChartInteractions(input, data, cfg) {
+      const svg = $("weightSyncSvg");
+      const hover = $("weightSyncHover");
+      const reset = $("chartReset");
+      const selection = $("chartSelection");
+      if (!svg || !hover) return;
+      const paths = weightPathSpecs(data);
+      let dragStartX = null;
+
+      function hoverAt(event) {
+        const svgX = chartSvgX(event, svg, cfg.width);
+        if (svgX < cfg.pad.left || svgX > cfg.width - cfg.pad.right) {
+          hover.textContent = "Hover over plot for values.";
+          return;
+        }
+        const b = chartBandwidthAtX(svgX, cfg);
+        const values = paths.map((path) => {
+          const sumSec = pathSumSec(path, b);
+          const lbSec = pathPipelinedSec(path, b);
+          return `${path.label}: ${fmtSeconds(sumSec)} (LB ${fmtSeconds(lbSec)})`;
+        }).join(" | ");
+        hover.innerHTML = `<strong>B_cross=${fmtGbps(b)}</strong> | ${values}`;
+      }
+
+      function setSelection(startX, endX) {
+        if (!selection) return;
+        const left = clamp(Math.min(startX, endX), cfg.pad.left, cfg.width - cfg.pad.right);
+        const right = clamp(Math.max(startX, endX), cfg.pad.left, cfg.width - cfg.pad.right);
+        selection.setAttribute("x", left);
+        selection.setAttribute("width", right - left);
+        selection.setAttribute("visibility", "visible");
+      }
+
+      function clearSelection() {
+        if (selection) selection.setAttribute("visibility", "hidden");
+      }
+
+      svg.addEventListener("mousemove", (event) => {
+        hoverAt(event);
+        if (dragStartX !== null) setSelection(dragStartX, chartSvgX(event, svg, cfg.width));
+      });
+      svg.addEventListener("mouseleave", () => {
+        hover.textContent = "Hover over plot for values.";
+        clearSelection();
+        dragStartX = null;
+      });
+      svg.addEventListener("mousedown", (event) => {
+        const svgX = chartSvgX(event, svg, cfg.width);
+        if (svgX >= cfg.pad.left && svgX <= cfg.width - cfg.pad.right) dragStartX = svgX;
+      });
+      svg.addEventListener("mouseup", (event) => {
+        if (dragStartX === null) return;
+        const endX = chartSvgX(event, svg, cfg.width);
+        const span = Math.abs(endX - dragStartX);
+        clearSelection();
+        if (span > 12) {
+          const nextMin = chartBandwidthAtX(Math.min(dragStartX, endX), cfg);
+          const nextMax = chartBandwidthAtX(Math.max(dragStartX, endX), cfg);
+          setWeightChartRange(nextMin, nextMax);
+          renderWeightSyncChart(input, data);
+        }
+        dragStartX = null;
+      });
+      svg.addEventListener("dblclick", () => {
+        weightChartRange = null;
+        renderWeightSyncChart(input, data);
+      });
+      svg.addEventListener("wheel", (event) => {
+        if (event.preventDefault) event.preventDefault();
+        const svgX = chartSvgX(event, svg, cfg.width);
+        const centerB = chartBandwidthAtX(svgX, cfg);
+        const zoom = event.deltaY > 0 ? 1.25 : 0.8;
+        const logMin = Math.log10(cfg.bMin);
+        const logMax = Math.log10(cfg.bMax);
+        const centerLog = Math.log10(centerB);
+        const nextSpan = clamp((logMax - logMin) * zoom, Math.log10(1.4), Math.log10(10000));
+        const leftShare = clamp((centerLog - logMin) / (logMax - logMin), 0.05, 0.95);
+        const nextMin = Math.pow(10, centerLog - nextSpan * leftShare);
+        const nextMax = Math.pow(10, centerLog + nextSpan * (1 - leftShare));
+        setWeightChartRange(nextMin, nextMax);
+        renderWeightSyncChart(input, data);
+      });
+      if (reset) {
+        reset.addEventListener("click", () => {
+          weightChartRange = null;
+          renderWeightSyncChart(input, data);
+        });
+      }
     }
 
     function renderNetwork(input, data) {
-      const capacity = input.BCross;
-      const rolloutRequired = input.weightPath === "optimal" ? fmtGbps(data.rolloutRequiredGbps) : "N/A";
-      const rolloutAvailable = input.weightPath === "optimal" ? fmtGbps(input.BRollout) : "N/A";
-      const rolloutStatus = input.weightPath === "optimal" ? capacityStatus(data.rolloutRequiredGbps, input.BRollout) : "not used";
+      const replayStatus = capacityStatus(data.replayGbps, input.BCross);
+      const weightStatus = capacityStatus(data.weightRequiredGbps, input.BCross);
       setRows("networkTable", [
-        row(["Replay Buffer (FIFO)", "rollout -> train", fmtGbps(data.replayGbps), fmtGbps(capacity), capacityStatus(data.replayGbps, capacity)]),
-        row(["Weight Sync cross", "train -> rollout", fmtRequiredGbps(data.weightRequiredGbps), fmtGbps(capacity), capacityStatus(data.weightRequiredGbps, capacity)]),
-        row(["Weight Sync rollout collective", "rollout internal", rolloutRequired, rolloutAvailable, rolloutStatus]),
-        row(["Full-duplex assumption", "opposite directions", "not summed", fmtGbps(capacity), "endpoint/topology caveats separate"])
+        row([
+          "Cross cluster",
+          "<code>B_cross</code>",
+          "aggregate per direction between train and rollout clusters",
+          fmtGbps(input.BCross),
+          "Replay, weight sync",
+          `${replayStatus} replay<br>${weightStatus} weight`
+        ]),
+        row([
+          "Rollout cluster inter",
+          "<code>B_rollout_inter</code>",
+          "aggregate collective bandwidth between rollout physical nodes",
+          fmtGbps(input.BRolloutInter),
+          "Hierarchical weight sync",
+          statusPill("Input", "neutral")
+        ]),
+        row([
+          "Rollout cluster intra",
+          "<code>B_rollout_intra</code>",
+          "per-GPU bidirectional fabric inside one rollout node",
+          fmtGBps(input.BRolloutIntra),
+          "Node fanout, Hierarchical",
+          statusPill("Input", "neutral")
+        ]),
+        row([
+          "Train cluster inter",
+          "<code>B_train_inter</code>",
+          "aggregate training network between train physical nodes",
+          "TBD",
+          "Train model TBD",
+          statusPill("TBD", "neutral")
+        ]),
+        row([
+          "Train cluster intra",
+          "<code>B_train_intra</code>",
+          "local GPU fabric inside one train node",
+          "TBD",
+          "Train model TBD",
+          statusPill("TBD", "neutral")
+        ])
       ]);
     }
 
@@ -1517,7 +1959,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         row(["Weight update period", fmtSeconds(input.updatePeriod), "K * H / f"]),
         row(["Allowed policy lag", `L=${fmt(input.L)}`, "input L"]),
         row(["Version deadline", fmtSeconds(data.policyDeadline), "L * K * H / f"]),
-        row(["Weight sync lower bound", fmtSeconds(data.weightSyncLowerBoundSec), "selected Weight Sync path"]),
+        row(["Weight sync SoL ref", fmtSeconds(data.weightSyncRefSec), "selected Weight Sync path, sum reference"]),
         row(["T_train / T_export / T_apply", "N/A", "not modeled in v1"])
       ]);
     }

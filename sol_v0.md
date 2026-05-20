@@ -71,7 +71,8 @@ Implementation notes in this file should be read as constraints implied by the S
 | Weight sync policy | - | sync after each train update, initially full weights |
 | Allowed policy version lag | `L` | 1, 2, 4, 8 versions |
 | Cross-cluster bandwidth | `B_cross` | total aggregate effective bandwidth per direction; default symmetric full-duplex |
-| Rollout-internal collective bandwidth | `B_rollout_collective` | total effective aggregate bandwidth for rollout-cluster weight allgather/broadcast |
+| Rollout intra-node GPU bandwidth | `B_rollout_intra` | per-GPU bidirectional send+recv aggregate bandwidth for rollout-node PCIe/NVLink/NVSwitch allgather |
+| Rollout inter-node collective bandwidth | `B_rollout_inter` | total effective aggregate bandwidth between rollout physical nodes for rollout-cluster weight collectives |
 
 Notes:
 
@@ -512,9 +513,19 @@ Storage/day and long-retention sizing are not part of the main SOL tables. They 
 - Hot replay tier for fresh training data.
 - Cold/logging tier with sampling, compression, or retention policy if audit/offline training requires it.
 
-### Cross-Cluster Bandwidth
+### Network Bandwidth
 
-The main SOL model assumes symmetric full-duplex bandwidth between train and rollout clusters. `B_cross` is total aggregate effective bandwidth per direction, not per-link bandwidth:
+The main SOL model should keep the relevant network domains visible in one table, rather than treating every bandwidth term as cross-cluster traffic. The current modeled terms are `B_cross`, `B_rollout_inter`, and `B_rollout_intra`; train-side fabrics are listed as TBD until the train model is added.
+
+| Network domain | Symbol | Scope | Used by | Status |
+|---|---|---|---|---|
+| Cross cluster | `B_cross` | aggregate per direction between train and rollout clusters | Replay, weight sync | OK/Tight/Over |
+| Rollout cluster inter | `B_rollout_inter` | aggregate collective bandwidth between rollout physical nodes | Hierarchical weight sync | Input |
+| Rollout cluster intra | `B_rollout_intra` | per-GPU bidirectional fabric inside one rollout node | Node fanout, Hierarchical | Input |
+| Train cluster inter | `B_train_inter` | aggregate training network between train physical nodes | Train model TBD | TBD |
+| Train cluster intra | `B_train_intra` | local GPU fabric inside one train node | Train model TBD | TBD |
+
+For cross-cluster traffic, the main SOL model assumes symmetric full-duplex bandwidth between train and rollout clusters. `B_cross` is total aggregate effective bandwidth per direction, not per-link bandwidth:
 
 ```text
 B_cross_up   = B_cross_down = B_cross_total_aggregate_per_direction
@@ -551,7 +562,7 @@ There are three useful SOL paths:
 
 1. Direct per-GPU fanout: train publishers send one full weight copy to every rollout GPU.
 2. Per-node scatter plus intra-node allgather: train publishers send one full model copy per physical inference node, sharded across the node's active rollout GPUs, then GPUs allgather locally so each DP inference GPU ends with full weights.
-3. Cross-cluster sharded scatter plus rollout-internal collective: train sends exactly one full model copy total, sharded across rollout physical nodes; the rollout cluster then performs an internal allgather/broadcast so each rollout node has a full copy before local GPU fanout.
+3. Cross-cluster sharded scatter plus rollout inter-node collective: train sends exactly one full model copy total, sharded across rollout physical nodes; the rollout cluster then performs an inter-node allgather/broadcast so each rollout node has a full copy before intra-node GPU fanout.
 
 The third path is the theoretical SOL communication lower bound for full-weight sync. It is more general than choosing a seed count `S`: it assumes the cross-cluster payload is perfectly sharded across rollout nodes, and the rollout cluster has its own effective collective bandwidth. A simpler root-receive plus local broadcast path is useful as a baseline, but it creates a root GPU/NIC/PCIe hotspot and should not be treated as the optimal design.
 
@@ -619,14 +630,14 @@ Timing lower bounds:
 T_sync_direct = (N_rollout_gpu * W) * 8 / B_cross_down
 
 T_sync_node_cross = (M * W) * 8 / B_cross_down
-T_sync_node_local_i = (2 * (r_i - 1) / r_i * W) / B_local_allgather_bidirectional_GBps
+T_sync_node_local_i = (2 * (r_i - 1) / r_i * W) / B_rollout_intra
 T_sync_node_local_critical = max_i(T_sync_node_local_i)
 
 T_sync_node_no_pipeline = T_sync_node_cross + T_sync_node_local_critical
 T_sync_node_pipeline_lb = max(T_sync_node_cross, T_sync_node_local_critical)
 ```
 
-The per-node path is not slower on the cross-cluster network. It reduces cross-cluster bytes by roughly the average number of active GPUs per rollout node, but adds local allgather work. In this model, `B_local_allgather_bidirectional_GBps` is the per-GPU bidirectional send+recv aggregate bandwidth in GB/s. The important comparison is therefore cross time, local send+recv/GPU on the critical node, local time, no-pipeline total, and pipelined lower bound.
+The per-node path is not slower on the cross-cluster network. It reduces cross-cluster bytes by roughly the average number of active GPUs per rollout node, but adds rollout intra-node allgather work. In this model, `B_rollout_intra` is the per-GPU bidirectional send+recv aggregate bandwidth in GB/s for PCIe/NVLink/NVSwitch inside one rollout node. The important comparison is therefore cross time, intra-node send+recv/GPU on the critical node, intra-node time, no-pipeline total, and pipelined lower bound.
 
 For `N_rollout_gpu=100`, `W=8.5GB`:
 
@@ -692,9 +703,9 @@ Interpretation:
 - For 90Hz, PCIe-only allgather may be acceptable only if the effective p99 is measured and model activation is fast; NVLink/NVSwitch gives much more margin.
 - If rollout servers are single-GPU edge boxes, this optimization does not apply.
 
-#### Cross-Cluster Sharded Scatter plus Rollout-Internal Collective
+#### Cross-Cluster Sharded Scatter plus Rollout Inter-Node Collective
 
-This is the theoretical full-weight communication lower bound for the system design. Instead of choosing a fixed seed count, train sends one full model copy total, sharded across rollout physical nodes. The rollout cluster then performs an internal allgather/broadcast so every rollout physical node has a full model copy, followed by the same intra-node GPU allgather as needed.
+This is the theoretical full-weight communication lower bound for the system design. Instead of choosing a fixed seed count, train sends one full model copy total, sharded across rollout physical nodes. The rollout cluster then performs an inter-node allgather/broadcast so every rollout physical node has a full model copy, followed by the same intra-node GPU allgather as needed.
 
 Definitions:
 
@@ -703,25 +714,25 @@ M = ceil(N_rollout_gpu / G_max)
 cross_cluster_bytes = W
 cross_cluster_bytes_per_rollout_node = W / M
 
-rollout_internal_collective_bytes = (M - 1) * W
-B_rollout_collective = total effective aggregate rollout-internal collective bandwidth
+rollout_inter_collective_bytes = (M - 1) * W
+B_rollout_inter = total effective aggregate rollout inter-node collective bandwidth
 ```
 
 Timing lower bounds:
 
 ```text
 T_sync_optimal_cross = W * 8 / B_cross_down
-T_sync_optimal_rollout = (M - 1) * W * 8 / B_rollout_collective
+T_sync_optimal_rollout_inter = (M - 1) * W * 8 / B_rollout_inter
 T_sync_optimal_local = T_sync_node_local_critical
 
 T_sync_optimal_no_pipeline =
   T_sync_optimal_cross
-+ T_sync_optimal_rollout
++ T_sync_optimal_rollout_inter
 + T_sync_optimal_local
 
 T_sync_optimal_pipeline_lb = max(
   T_sync_optimal_cross,
-  T_sync_optimal_rollout,
+  T_sync_optimal_rollout_inter,
   T_sync_optimal_local
 )
 ```
@@ -729,7 +740,8 @@ T_sync_optimal_pipeline_lb = max(
 This path is intentionally a SOL lower bound:
 
 - Train-side cross-cluster traffic is exactly one model copy, `W`.
-- Rollout-internal bandwidth is abstracted as `B_rollout_collective`; v0 does not decompose rack topology, seed placement, tree fanout, receiver NICs, or protocol efficiency.
+- Rollout inter-node bandwidth is abstracted as `B_rollout_inter`; v0 does not decompose rack topology, seed placement, tree fanout, receiver NICs, or protocol efficiency.
+- Rollout intra-node bandwidth is separate as `B_rollout_intra`; it represents PCIe/NVLink/NVSwitch allgather inside a physical rollout node.
 - The rollout collective must not interfere with RTC p99.
 - `T_export`, checksum/validation, and `T_apply` remain separate from this communication lower bound.
 
@@ -785,43 +797,33 @@ K = number of horizons per rollout policy update
 T_update = K * H / f
 T_publish <= L * T_update
 deadline = L * T_update
-required_B_cross_direct = direct_weight_bytes * 8 / deadline
-required_B_cross_node_lb = node_scatter_bytes * 8 / deadline
-required_B_cross_optimal_lb = W * 8 / deadline
-required_B_rollout_collective_optimal_lb = (M - 1) * W * 8 / deadline
+T_sync_pipelined_lb = max(T_cross, T_rollout_inter, T_rollout_intra)
+T_sync_sum_ref = T_cross + T_rollout_inter + T_rollout_intra
+required_B_cross_sum_ref = cross_comm_volume * 8 / (deadline - T_rollout_inter - T_rollout_intra)
 ```
 
 `L=1` is the ideal 1-version-off target. Higher `L` values relax policy freshness but may be operationally necessary for full-model sync.
 
-For lower-bound capacity checks, cross-cluster bandwidth, rollout-internal collective bandwidth, and local allgather time should be checked separately. A stricter no-pipeline implementation can subtract local time from the cross-cluster deadline, but that is not the SOL lower bound.
+For the high-level calculator, `T_sync_sum_ref` is the main SoL reference used for deadline checks and `required_B_cross`. `T_sync_pipelined_lb` is retained as the optimistic fully streamed lower bound. If `deadline <= T_rollout_inter + T_rollout_intra`, the required cross-cluster bandwidth is infeasible because the fixed rollout-side communication already exceeds the deadline.
 
-For the default current-input case `N_robot=100`, `K_env=1`, `f=30Hz`, `H=100`, `K=1`, `W=8.5GB`, `G_max=8`, and `B_local=64GB/s`:
+Path names in the UI:
 
-| Path | L | Deadline | Local time | Required `B_cross` | Required `B_rollout_collective` |
-|---|---:|---:|---:|---:|---:|
-| Direct per-GPU | 1 | 3.33s | N/A | 2.04Tbps | N/A |
-| Direct per-GPU | 2 | 6.67s | N/A | 1.02Tbps | N/A |
-| Direct per-GPU | 4 | 13.33s | N/A | 510Gbps | N/A |
-| Direct per-GPU | 8 | 26.67s | N/A | 255Gbps | N/A |
-| Per-node scatter + allgather, `G_max=8` | 1 | 3.33s | 0.23s | 265Gbps | N/A |
-| Per-node scatter + allgather, `G_max=8` | 2 | 6.67s | 0.23s | 133Gbps | N/A |
-| Per-node scatter + allgather, `G_max=8` | 4 | 13.33s | 0.23s | 66Gbps | N/A |
-| Per-node scatter + allgather, `G_max=8` | 8 | 26.67s | 0.23s | 33Gbps | N/A |
-| Optimal sharded scatter + rollout collective | 1 | 3.33s | 0.23s | 20Gbps | 245Gbps |
-| Optimal sharded scatter + rollout collective | 2 | 6.67s | 0.23s | 10Gbps | 122Gbps |
-| Optimal sharded scatter + rollout collective | 4 | 13.33s | 0.23s | 5Gbps | 61Gbps |
-| Optimal sharded scatter + rollout collective | 8 | 26.67s | 0.23s | 3Gbps | 31Gbps |
+| Short name | Full path |
+|---|---|
+| Direct | direct per-GPU fanout |
+| Node fanout | per-node scatter + allgather |
+| Hierarchical | optimal sharded scatter + rollout inter-node collective |
 
 Frequency sweeps such as 10/30/90Hz should be presented as optional sensitivity views, not as the main table. The main calculator should always use the current input `f`.
 
-`Min L for sync lower bound` should use the pipelined lower-bound path time:
+`Min L for sync` should use the sum reference path time:
 
 ```text
-T_sync_lb_direct = T_sync_direct
-T_sync_lb_node = max(T_sync_node_cross, T_sync_node_local_critical)
-T_sync_lb_optimal = max(T_sync_optimal_cross, T_sync_optimal_rollout, T_sync_optimal_local)
-T_sync_lb_selected = T_sync_lb_direct, T_sync_lb_node, or T_sync_lb_optimal for selected path
-minL_sync_lb = max(1, ceil(T_sync_lb_selected / T_update))
+T_sync_ref_direct = T_sync_direct
+T_sync_ref_node = T_sync_node_cross + T_sync_node_local_critical
+T_sync_ref_hierarchical = T_sync_optimal_cross + T_sync_optimal_rollout_inter + T_sync_optimal_local
+T_sync_ref_selected = direct, node, or hierarchical sum reference for selected path
+minL_sync_ref = max(1, ceil(T_sync_ref_selected / T_update))
 ```
 
 Capacity status in the calculator should reserve margin:
@@ -830,6 +832,8 @@ Capacity status in the calculator should reserve margin:
 OK    if required <= 0.75 * capacity
 Tight if required <= capacity
 Over  if required > capacity
+Input if the row is a fixed model parameter rather than a pass/fail check
+TBD   if the row is not modeled yet
 ```
 
 ## Rollout Weight Update Deadline
@@ -858,7 +862,7 @@ The full latency condition remains:
 T_train_update + T_export + T_weight_sync + T_apply <= L * T_update
 ```
 
-In v1, `T_train_update`, `T_export`, and `T_apply` are `N/A`; only `T_weight_sync` has a numerical lower bound from the Weight Sync table.
+In v1, `T_train_update`, `T_export`, and `T_apply` are `N/A`; only `T_weight_sync` has a numerical communication reference from the Weight Sync table.
 
 The replay FIFO consume condition is separate and should not be mixed into this table:
 
@@ -958,7 +962,7 @@ Memory implication:
 
 1. Use the collective fanout lower bound, not single-source direct fanout.
 
-   A single publisher directly pushing full weights to every rollout GPU is not the SOL path. The theoretical communication lower bound is one cross-cluster model copy, sharded across rollout nodes, followed by a rollout-internal collective.
+   A single publisher directly pushing full weights to every rollout GPU is not the SOL path. The theoretical communication lower bound is one cross-cluster model copy, sharded across rollout nodes, followed by a rollout inter-node collective and rollout intra-node GPU allgather.
 
    If rollout inference nodes have multiple GPUs, per-node scatter plus intra-node NCCL allgather is a practical middle path. It reduces train-rollout network bytes by roughly the active GPU count per node, balances receive load across GPUs, and avoids a root-GPU hotspot. The cost is local GPU fabric pressure and model activation coordination.
 
@@ -1038,8 +1042,8 @@ Initial inputs:
 - `W`: model sync payload.
 - `L`: allowed policy version lag.
 - `B_cross`: total aggregate effective train-rollout bandwidth per direction, default symmetric full-duplex.
-- `B_rollout_collective`: total effective aggregate rollout-internal collective bandwidth for the optimal weight-sync path.
-- `B_local`: intra-node per-GPU bidirectional send+recv aggregate allgather bandwidth in GB/s; default PCIe 4.0 x16 theoretical is 64GB/s.
+- `B_rollout_inter`: total effective aggregate rollout inter-node collective bandwidth for the optimal weight-sync path.
+- `B_rollout_intra`: rollout intra-node per-GPU bidirectional send+recv aggregate allgather bandwidth in GB/s; default PCIe 4.0 x16 theoretical is 64GB/s.
 - `T_obs_pipeline_p99`, `T_infer_p99`, `T_action_pipeline_p99`, `T_jitter_p99`: serial RTC next-chunk critical-path timing buckets; defaults are 0.010s, 0.150s, 0.010s, and 0.050s.
 - `T_train_update`, `T_export`, `T_apply`: policy-version latency placeholders until train-side modeling is added.
 - Parameter hover help: explain symbol, unit, default assumption, and formula usage without expanding the visible form.
@@ -1050,17 +1054,17 @@ Proposed page hierarchy:
 1. Top-level summary.
 
    - First row: Rollout cluster, Train cluster, Replay Buffer, FIFO.
-   - Second row: Weight downlink, Weight sync lower bound, Min L for sync lower bound, RTC lookahead.
+   - Second row: Weight downlink, Weight sync SoL ref, Min L for sync ref, RTC lookahead.
    - Weight downlink required bandwidth.
-   - Min L for sync lower bound.
+   - Min L for sync reference.
    - Red/yellow/green feasibility indicators.
 
-2. Cross-Cluster Bandwidth.
+2. Network Bandwidth.
 
-   - Fixed hardware budget.
+   - One table for cross cluster, rollout cluster inter/intra, and train cluster inter/intra bandwidth domains.
    - `B_cross` as total aggregate effective bandwidth per direction.
-   - Replay Buffer (FIFO): rollout -> train.
-   - Weight Sync: train -> rollout.
+   - `B_rollout_inter` and `B_rollout_intra` as fixed rollout-cluster inputs used by Version Lag.
+   - `B_train_inter` and `B_train_intra` shown as not modeled yet.
 
 3. Rollout critical path.
 
@@ -1077,8 +1081,8 @@ Proposed page hierarchy:
 
 5. Weight Sync.
 
-   - Path Cost: direct per-GPU vs per-node scatter + allgather vs optimal sharded scatter + rollout-internal collective.
-   - Version Lag Requirement: L=1/2/4/8 required `B_cross`; optimal path also reports required `B_rollout_collective`; `B_local` is treated as fixed hardware and appears as local time.
+   - Path Cost: Direct vs Node fanout vs Hierarchical.
+   - Version Lag Requirement: L=1/2/4/8 required `B_cross`; `B_rollout_inter` and `B_rollout_intra` are fixed hardware inputs, with both pipelined lower bound and sum reference shown.
 
 6. Rollout Weight Update Deadline.
 
@@ -1090,7 +1094,7 @@ Proposed page hierarchy:
 7. Expandable internal helper models.
 
    - Train cluster update time helper.
-   - Inference node local allgather helper.
+   - Rollout intra-node allgather helper.
    - Camera-derived `S_step` helper.
    - Replay step-vs-chunk helper.
    - Storage retention helper.
