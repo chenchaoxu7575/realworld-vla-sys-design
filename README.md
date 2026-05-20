@@ -4,7 +4,7 @@ Speed-of-light system design notes and calculator for large-scale real-world VLA
 
 ## Calculator
 
-[Open SOL Calculator](https://chenchaox.gitlab-master.nvidia.com/realworld-vla-sys-design/)
+[Open SOL Calculator](https://chenchaox.gitlab-master-pages.nvidia.com/realworld-vla-sys-design/)
 
 ## Contents
 
