@@ -6,7 +6,6 @@ pages:
   image: alpine:3.20
   tags:
     - os/linux
-    - cpu/x86_64
     - type/docker
   script:
     - mkdir -p public
