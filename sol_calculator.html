@@ -737,7 +737,7 @@
             <input id="rolloutIntraBw" type="number" min="0.1" step="1" value="64">
           </div>
           <div class="field">
-            <div class="label-line" data-tip="B_rollout_inter: effective aggregate bandwidth between rollout physical nodes for the optimal sharded-scatter path. This is rollout-cluster east-west network capacity, not PCIe/NVLink inside one node."><label for="rolloutInterBw">B_rollout_inter: rollout inter-node collective (Gbps)</label></div>
+            <div class="label-line" data-tip="B_rollout_inter: effective aggregate bidirectional send+recv bandwidth between rollout physical nodes for the optimal sharded-scatter path. This is rollout-cluster east-west network capacity, not PCIe/NVLink inside one node."><label for="rolloutInterBw">B_rollout_inter: rollout inter-node collective (Gbps)</label></div>
             <input id="rolloutInterBw" type="number" min="1" step="1" value="100">
           </div>
           <div class="field">
@@ -960,9 +960,9 @@
                 <th>Cross comm volume</th>
                 <th>Cross payload per receiver</th>
                 <th>Cross time</th>
+                <th>Rollout inter comm volume</th>
                 <th>Rollout inter time</th>
-                <th>Rollout intra recv/GPU</th>
-                <th>Rollout intra send+recv/GPU</th>
+                <th>Rollout intra comm volume/GPU</th>
                 <th>Rollout intra time</th>
                 <th>SoL ref (sum)</th>
                 <th>Pipelined LB</th>
@@ -972,7 +972,7 @@
             <tbody id="fanoutTable"></tbody>
           </table>
         </div>
-        <p class="table-note">Path names: Direct = direct per-GPU fanout; Node fanout = per-node scatter + allgather; Hierarchical = optimal sharded scatter + rollout inter-node collective. Reduction vs direct (sum) compares SoL ref (sum) time, not pipelined LB.</p>
+        <p class="table-note">Path names: Direct = direct per-GPU fanout; Node fanout = per-node scatter + allgather; Hierarchical = optimal sharded scatter + rollout inter-node collective. Rollout inter comm volume is aggregate send+recv across rollout nodes; rollout intra comm volume/GPU is critical per-GPU send+recv. Reduction vs direct (sum) compares SoL ref (sum) time, not pipelined LB.</p>
 
         <h3>Version Lag Requirement</h3>
         <div class="deadline-strip" id="deadlineStrip"></div>
@@ -1001,7 +1001,7 @@
             <tbody id="lagTable"></tbody>
           </table>
         </div>
-        <p class="table-note">Version Lag uses SoL ref (sum) for deadline checks and required B_cross. Pipelined LB is the optimistic max(cross, rollout inter, rollout intra) lower bound.</p>
+        <p class="table-note">Version Lag uses SoL ref (sum) for deadline checks and required B_cross. Rollout inter comm volume is aggregate send+recv; rollout intra comm volume/GPU is per-GPU send+recv. Pipelined LB is the optimistic max(cross, rollout inter, rollout intra) lower bound.</p>
       </section>
 
       <section class="card">
@@ -1056,15 +1056,16 @@ rollout_intra_recv_per_gpu_i = (r_i - 1) / r_i * W
 rollout_intra_send_recv_per_gpu_i = 2 * rollout_intra_recv_per_gpu_i
 rollout_intra_critical = max_i(rollout_intra_send_recv_per_gpu_i / B_rollout_intra)
 optimal_cross_bytes = W
-optimal_rollout_inter_bytes = (M_rollout - 1) * W
-B_rollout_inter = total effective aggregate rollout inter-node collective bandwidth
+optimal_rollout_inter_recv_bytes = (M_rollout - 1) * W
+optimal_rollout_inter_send_recv_bytes = 2 * optimal_rollout_inter_recv_bytes
+B_rollout_inter = total effective aggregate bidirectional rollout inter-node collective bandwidth
 T_rollout_intra = rollout_intra_critical
 T_sync_direct = direct_weight_bytes * 8 / B_cross
 T_sync_node_cross = node_scatter_bytes * 8 / B_cross
 T_sync_node_no_pipeline = T_sync_node_cross + rollout_intra_critical
 T_sync_node_pipeline_lb = max(T_sync_node_cross, rollout_intra_critical)
 T_sync_optimal_cross = W * 8 / B_cross
-T_sync_optimal_rollout_inter = optimal_rollout_inter_bytes * 8 / B_rollout_inter
+T_sync_optimal_rollout_inter = optimal_rollout_inter_send_recv_bytes * 8 / B_rollout_inter
 T_sync_optimal_no_pipeline = T_sync_optimal_cross + T_sync_optimal_rollout_inter + rollout_intra_critical
 T_sync_optimal_pipeline_lb = max(T_sync_optimal_cross, T_sync_optimal_rollout_inter, rollout_intra_critical)
 
@@ -1351,7 +1352,8 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       const nodeNoPipelineSec = nodeCrossSec + rolloutIntraSec;
       const nodePipelinedSec = Math.max(nodeCrossSec, rolloutIntraSec);
       const optimalCrossBytesGB = input.W;
-      const optimalRolloutInterBytesGB = Math.max(Mrollout - 1, 0) * input.W;
+      const optimalRolloutInterRecvBytesGB = Math.max(Mrollout - 1, 0) * input.W;
+      const optimalRolloutInterBytesGB = 2 * optimalRolloutInterRecvBytesGB;
       const optimalCrossSec = optimalCrossBytesGB * 8 / input.BCross;
       const optimalRolloutInterSec = optimalRolloutInterBytesGB * 8 / input.BRolloutInter;
       const optimalNoPipelineSec = optimalCrossSec + optimalRolloutInterSec + rolloutIntraSec;
@@ -1405,6 +1407,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         nodeShardMinGB,
         nodeShardMaxGB,
         optimalCrossBytesGB,
+        optimalRolloutInterRecvBytesGB,
         optimalRolloutInterBytesGB,
         selectedCrossBytesGB,
         selectedRolloutInterBytesGB,
@@ -1503,7 +1506,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       const activeMode = input.replayUnit === "step" ? "step replay" : "chunk replay";
       const rolloutCollectiveText = input.weightPath === "optimal" ? fmtSeconds(data.selectedRolloutInterSec) : "N/A";
       const rolloutCollectiveSub = input.weightPath === "optimal"
-        ? `${fmtGB(data.selectedRolloutInterBytesGB)} over fixed ${fmtGbps(input.BRolloutInter)} B_rollout_inter`
+        ? `${fmtGB(data.selectedRolloutInterBytesGB)} send+recv over fixed ${fmtGbps(input.BRolloutInter)} B_rollout_inter`
         : "selected path does not use B_rollout_inter";
 
       $("summaryGrid").innerHTML = [
@@ -1530,7 +1533,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         row(["Rollout GPUs/node", fmtInt(input.G), "G_max, default 8"]),
         row(["Active rollout ranks/node", `${fmtInt(data.maxNodeRanks)} max; ${fmtInt(data.minNodeRanks)} min`, "partial tail nodes use actual active ranks"]),
         row(["B_rollout_intra", fmtGBps(input.BRolloutIntra), "rollout node intra-GPU fabric; PCIe/NVLink/NVSwitch"]),
-        row(["B_rollout_inter", fmtGbps(input.BRolloutInter), "rollout cluster inter-node collective network"]),
+        row(["B_rollout_inter", fmtGbps(input.BRolloutInter), "rollout cluster inter-node aggregate bidirectional collective network"]),
         row(["Rollout nodes", fmtInt(data.Mrollout), "ceil(N_rollout_gpu / G_max)"]),
         row(["Replay pressure / full rollout GPU", `${fmtInt(data.fullGpuReplayStepsPerSec)} primitive steps/s`, `K_env * f; tail GPU ${fmtInt(data.tailGpuReplayStepsPerSec)} primitive steps/s`]),
         row(["Train GPUs", fmtInt(input.Tgpu), "input T_gpu"]),
@@ -1581,7 +1584,6 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
     }
 
     function renderFanout(input, data) {
-      const directLocal = 0;
       const nodeReduction = data.directNoPipelineSec / data.nodeNoPipelineSec;
       const optimalReduction = data.directNoPipelineSec / data.optimalNoPipelineSec;
       setRows("fanoutTable", [
@@ -1591,8 +1593,8 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
           `${fmtGB(input.W)} / rollout GPU`,
           fmtSeconds(data.directCrossSec),
           "N/A",
-          fmtGB(directLocal),
-          fmtGB(directLocal),
+          "N/A",
+          "N/A",
           "0 s",
           fmtSeconds(data.directNoPipelineSec),
           fmtSeconds(data.directPipelinedSec),
@@ -1604,8 +1606,8 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
           `${fmtGBRange(data.nodeShardMinGB, data.nodeShardMaxGB)} / active GPU`,
           fmtSeconds(data.nodeCrossSec),
           "N/A",
-          fmtGB(data.rolloutIntraRecvPerGpuGB),
-          fmtGB(data.rolloutIntraSendRecvPerGpuGB),
+          "N/A",
+          `${fmtGB(data.rolloutIntraSendRecvPerGpuGB)} send+recv`,
           fmtSeconds(data.rolloutIntraSec),
           fmtSeconds(data.nodeNoPipelineSec),
           fmtSeconds(data.nodePipelinedSec),
@@ -1616,9 +1618,9 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
           fmtGB(data.optimalCrossBytesGB),
           `${fmtGB(data.optimalCrossBytesGB / data.Mrollout)} / rollout node`,
           fmtSeconds(data.optimalCrossSec),
+          `${fmtGB(data.optimalRolloutInterBytesGB)} send+recv`,
           fmtSeconds(data.optimalRolloutInterSec),
-          fmtGB(data.rolloutIntraRecvPerGpuGB),
-          fmtGB(data.rolloutIntraSendRecvPerGpuGB),
+          `${fmtGB(data.rolloutIntraSendRecvPerGpuGB)} send+recv`,
           fmtSeconds(data.rolloutIntraSec),
           fmtSeconds(data.optimalNoPipelineSec),
           fmtSeconds(data.optimalPipelinedSec),
@@ -1708,9 +1710,9 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
           path.label,
           fmtGB(path.crossBytesGB),
           fmtSeconds(crossSec),
-          path.interBytesGB > 0 ? fmtGB(path.interBytesGB) : "N/A",
+          path.interBytesGB > 0 ? `${fmtGB(path.interBytesGB)} send+recv` : "N/A",
           path.interBytesGB > 0 ? fmtSeconds(path.interSec) : "N/A",
-          path.intraBytesGB > 0 ? fmtGB(path.intraBytesGB) : "N/A",
+          path.intraBytesGB > 0 ? `${fmtGB(path.intraBytesGB)} send+recv` : "N/A",
           path.intraBytesGB > 0 ? fmtSeconds(path.intraSec) : "N/A",
           ...requiredByLag,
           fmtSeconds(pipelinedSec),
@@ -1964,7 +1966,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         row([
           "Rollout cluster inter",
           "<code>B_rollout_inter</code>",
-          "aggregate collective bandwidth between rollout physical nodes",
+          "aggregate bidirectional collective bandwidth between rollout physical nodes",
           fmtGbps(input.BRolloutInter),
           "Hierarchical weight sync",
           statusPill("Input", "neutral")

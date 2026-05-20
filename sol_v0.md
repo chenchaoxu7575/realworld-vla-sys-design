@@ -72,7 +72,7 @@ Implementation notes in this file should be read as constraints implied by the S
 | Allowed policy version lag | `L` | 1, 2, 4, 8 versions |
 | Cross-cluster bandwidth | `B_cross` | total aggregate effective bandwidth per direction; default 10Gbps symmetric full-duplex |
 | Rollout intra-node GPU bandwidth | `B_rollout_intra` | per-GPU bidirectional send+recv aggregate bandwidth for rollout-node PCIe/NVLink/NVSwitch allgather |
-| Rollout inter-node collective bandwidth | `B_rollout_inter` | default 100Gbps total effective aggregate bandwidth between rollout physical nodes for rollout-cluster weight collectives |
+| Rollout inter-node collective bandwidth | `B_rollout_inter` | default 100Gbps total effective aggregate bidirectional send+recv bandwidth between rollout physical nodes for rollout-cluster weight collectives |
 
 Notes:
 
@@ -520,7 +520,7 @@ The main SOL model should keep the relevant network domains visible in one table
 | Network domain | Symbol | Scope | Used by | Status |
 |---|---|---|---|---|
 | Cross cluster | `B_cross` | aggregate per direction between train and rollout clusters | Replay, weight sync | OK/Tight/Over |
-| Rollout cluster inter | `B_rollout_inter` | aggregate collective bandwidth between rollout physical nodes | Hierarchical weight sync | Input |
+| Rollout cluster inter | `B_rollout_inter` | aggregate bidirectional collective bandwidth between rollout physical nodes | Hierarchical weight sync | Input |
 | Rollout cluster intra | `B_rollout_intra` | per-GPU bidirectional fabric inside one rollout node | Node fanout, Hierarchical | Input |
 | Train cluster inter | `B_train_inter` | aggregate training network between train physical nodes | Train model TBD | TBD |
 | Train cluster intra | `B_train_intra` | local GPU fabric inside one train node | Train model TBD | TBD |
@@ -714,15 +714,16 @@ M = ceil(N_rollout_gpu / G_max)
 cross_cluster_bytes = W
 cross_cluster_bytes_per_rollout_node = W / M
 
-rollout_inter_collective_bytes = (M - 1) * W
-B_rollout_inter = total effective aggregate rollout inter-node collective bandwidth
+rollout_inter_recv_bytes = (M - 1) * W
+rollout_inter_send_recv_bytes = 2 * rollout_inter_recv_bytes
+B_rollout_inter = total effective aggregate bidirectional rollout inter-node collective bandwidth
 ```
 
 Timing lower bounds:
 
 ```text
 T_sync_optimal_cross = W * 8 / B_cross_down
-T_sync_optimal_rollout_inter = (M - 1) * W * 8 / B_rollout_inter
+T_sync_optimal_rollout_inter = rollout_inter_send_recv_bytes * 8 / B_rollout_inter
 T_sync_optimal_local = T_sync_node_local_critical
 
 T_sync_optimal_no_pipeline =
@@ -740,7 +741,7 @@ T_sync_optimal_pipeline_lb = max(
 This path is intentionally a SOL lower bound:
 
 - Train-side cross-cluster traffic is exactly one model copy, `W`.
-- Rollout inter-node bandwidth is abstracted as `B_rollout_inter`; v0 does not decompose rack topology, seed placement, tree fanout, receiver NICs, or protocol efficiency.
+- Rollout inter-node bandwidth is abstracted as aggregate bidirectional `B_rollout_inter`; v0 does not decompose rack topology, seed placement, tree fanout, receiver NICs, or protocol efficiency.
 - Rollout intra-node bandwidth is separate as `B_rollout_intra`; it represents PCIe/NVLink/NVSwitch allgather inside a physical rollout node.
 - The rollout collective must not interfere with RTC p99.
 - `T_export`, checksum/validation, and `T_apply` remain separate from this communication lower bound.
@@ -1048,7 +1049,7 @@ Initial inputs:
 - `W`: model sync payload, default 6GB.
 - `L`: allowed policy version lag.
 - `B_cross`: total aggregate effective train-rollout bandwidth per direction, default 10Gbps symmetric full-duplex.
-- `B_rollout_inter`: total effective aggregate rollout inter-node collective bandwidth for the optimal weight-sync path, default 100Gbps.
+- `B_rollout_inter`: total effective aggregate bidirectional rollout inter-node collective bandwidth for the optimal weight-sync path, default 100Gbps.
 - `B_rollout_intra`: rollout intra-node per-GPU bidirectional send+recv aggregate allgather bandwidth in GB/s; default PCIe 4.0 x16 theoretical is 64GB/s.
 - `T_obs_pipeline_p99`, `T_infer_p99`, `T_action_pipeline_p99`, `T_jitter_p99`: serial RTC next-chunk critical-path timing buckets; defaults are 0.010s, 0.150s, 0.010s, and 0.050s.
 - `T_train_update`, `T_export`, `T_apply`: policy-version latency placeholders until train-side modeling is added.
