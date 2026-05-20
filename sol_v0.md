@@ -46,10 +46,10 @@ Implementation notes in this file should be read as constraints implied by the S
 | Parameter | Symbol | v0 value |
 |---|---:|---:|
 | Number of physical robots | `N_robot` | 100 |
-| Robots per rollout GPU | `K_env` | default 1; supports `1:k` rollout |
-| Rollout GPUs | `N_rollout_gpu = ceil(N_robot / K_env)` | 100 for `N_robot=100,K_env=1` |
+| Robots per rollout GPU | `K_env` | default 2; supports `1:k` rollout |
+| Rollout GPUs | `N_rollout_gpu = ceil(N_robot / K_env)` | 50 for `N_robot=100,K_env=2` |
 | Rollout GPUs per physical node | `G_max` | default 8 |
-| Rollout physical nodes | `M_rollout = ceil(N_rollout_gpu / G_max)` | 13 for `N_rollout_gpu=100,G_max=8` |
+| Rollout physical nodes | `M_rollout = ceil(N_rollout_gpu / G_max)` | 7 for `N_rollout_gpu=50,G_max=8` |
 | Train GPUs | `T_gpu` | default 32, variable |
 | Train GPUs per physical node | `G_train` | default 8 |
 | Train physical nodes | `M_train = ceil(T_gpu / G_train)` | derived |
@@ -62,23 +62,23 @@ Implementation notes in this file should be read as constraints implied by the S
 | RTC jitter reserve p99 | `T_jitter_p99` | default 0.050s |
 | Max trajectory horizon | `H` | 100 steps |
 | Weight update cadence | `K` | update rollout weights every `K` horizons, default 1 |
-| Replay granularity | `R_unit` | `step` or `chunk`; current RLinf pi0.5 is chunk-like |
+| Replay granularity | `R_unit` | default `step`; `chunk` is optional |
 | Step-level payload | `S_step` | 1MB per primitive step |
 | Chunk-level payload | `S_chunk` | derived from boundary observations and chunk metadata |
 | Trajectory payload | `S_episode` | depends on `R_unit` |
-| Model sync payload | `W` | 8.5GB full state_dict reference |
+| Model sync payload | `W` | default 6GB BF16 parameter-payload sizing point |
 | Model baseline | - | Pi0.5 3B BF16, no sharding |
 | Weight sync policy | - | sync after each train update, initially full weights |
 | Allowed policy version lag | `L` | 1, 2, 4, 8 versions |
-| Cross-cluster bandwidth | `B_cross` | total aggregate effective bandwidth per direction; default symmetric full-duplex |
+| Cross-cluster bandwidth | `B_cross` | total aggregate effective bandwidth per direction; default 10Gbps symmetric full-duplex |
 | Rollout intra-node GPU bandwidth | `B_rollout_intra` | per-GPU bidirectional send+recv aggregate bandwidth for rollout-node PCIe/NVLink/NVSwitch allgather |
-| Rollout inter-node collective bandwidth | `B_rollout_inter` | total effective aggregate bandwidth between rollout physical nodes for rollout-cluster weight collectives |
+| Rollout inter-node collective bandwidth | `B_rollout_inter` | default 100Gbps total effective aggregate bandwidth between rollout physical nodes for rollout-cluster weight collectives |
 
 Notes:
 
-- `W=8.5GB` comes from the observed RLinf Pi0.5 3B run. Pure BF16 parameters for 3B params would be about 6GB, but SOL should use the larger measured sync payload until proven otherwise.
+- `W=6GB` is the default BF16 parameter-payload sizing point. The observed RLinf Pi0.5 3B publish payload can be larger, around 8.5GB, if extra state_dict overhead is included.
 - `S_step=1MB` is kept as the v0 step-level sizing point, but it should be derived from the observation payload model below rather than treated as a magic constant.
-- Current RLinf pi0.5 real-world style replay is closer to `chunk` granularity: with `H=100` and `C=50`, one episode has about 2 replay entries, not 100.
+- Default calculator replay is `step` granularity to expose worst-case FIFO producer pressure. Current RLinf pi0.5 real-world style replay may be closer to `chunk` granularity: with `H=100` and `C=50`, one episode has about 2 replay entries, not 100.
 - For `K_env > 1`, the RTC timing buckets must be measured under the actual multi-robot rollout policy. Inference batching, local fan-in/fan-out, CPU preprocessing, and replay spooling are not decomposed in v0.
 
 ## Not Yet Modeled
@@ -785,7 +785,7 @@ Full-weight sync every control step is impossible:
 N_rollout_gpu * W * f
 ```
 
-With the default `N_rollout_gpu=100,W=8.5GB`, at 10Hz this would be 8.5TB/s of direct per-GPU weight traffic. At 90Hz it would be 76.5TB/s.
+With the default `N_rollout_gpu=50,W=6GB`, at 10Hz this would be 3.0TB/s of direct per-GPU weight traffic. At 90Hz it would be 27.0TB/s.
 
 Therefore "1-step-off" must be defined as one training-version off, not one robot-control-step off, unless the sync payload is reduced from full model weights to a very small delta.
 
@@ -852,7 +852,7 @@ T_update = K * H / f
 T_deadline = L * T_update
 ```
 
-For the default `N_robot=100`, `K_env=1`, `f=10Hz`, `H=100`, `K=1`:
+For an illustrative `N_robot=100`, `K_env=2`, `f=10Hz`, `H=100`, `K=1` case:
 
 | Metric | Value |
 |---|---:|
@@ -1030,7 +1030,7 @@ Build an interactive HTML SOL calculator after the formulas settle.
 Initial inputs:
 
 - `N_robot`: physical robot count.
-- `K_env`: robots per rollout GPU.
+- `K_env`: robots per rollout GPU, default 2.
 - `N_rollout_gpu`: derived rollout GPU count, `ceil(N_robot / K_env)`.
 - `G_max`: rollout GPUs per physical inference node.
 - `M_rollout`: derived rollout node count, `ceil(N_rollout_gpu / G_max)`.
@@ -1041,14 +1041,14 @@ Initial inputs:
 - `C`: action chunk length.
 - `H`: trajectory horizon.
 - `K`: update rollout weights every `K` horizons, default 1.
-- `R_unit`: replay granularity, step or chunk.
+- `R_unit`: replay granularity, step or chunk; default step.
 - `S_step`: replay payload per step.
 - `S_chunk`: replay payload per chunk entry.
 - Optional camera-derived replay payload helper: views, square resolution, current/next obs, bytes per channel, compression ratio, overhead.
-- `W`: model sync payload.
+- `W`: model sync payload, default 6GB.
 - `L`: allowed policy version lag.
-- `B_cross`: total aggregate effective train-rollout bandwidth per direction, default symmetric full-duplex.
-- `B_rollout_inter`: total effective aggregate rollout inter-node collective bandwidth for the optimal weight-sync path.
+- `B_cross`: total aggregate effective train-rollout bandwidth per direction, default 10Gbps symmetric full-duplex.
+- `B_rollout_inter`: total effective aggregate rollout inter-node collective bandwidth for the optimal weight-sync path, default 100Gbps.
 - `B_rollout_intra`: rollout intra-node per-GPU bidirectional send+recv aggregate allgather bandwidth in GB/s; default PCIe 4.0 x16 theoretical is 64GB/s.
 - `T_obs_pipeline_p99`, `T_infer_p99`, `T_action_pipeline_p99`, `T_jitter_p99`: serial RTC next-chunk critical-path timing buckets; defaults are 0.010s, 0.150s, 0.010s, and 0.050s.
 - `T_train_update`, `T_export`, `T_apply`: policy-version latency placeholders until train-side modeling is added.

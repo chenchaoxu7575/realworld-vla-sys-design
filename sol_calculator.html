@@ -682,8 +682,8 @@
             <input id="robotCount" type="number" min="1" step="1" value="100">
           </div>
           <div class="field">
-            <div class="label-line" data-tip="Number of robots served by one rollout GPU. K_env=1 preserves the original 1 GPU : 1 robot assumption; K_env>1 reduces rollout GPU count but increases local batching/fan-in pressure."><label for="robotsPerGpu">Robots per rollout GPU K_env</label></div>
-            <input id="robotsPerGpu" type="number" min="1" step="1" value="1">
+            <div class="label-line" data-tip="Number of robots served by one rollout GPU. K_env=2 is the default multiplexed rollout assumption; K_env>1 reduces rollout GPU count but increases local batching/fan-in pressure."><label for="robotsPerGpu">Robots per rollout GPU K_env</label></div>
+            <input id="robotsPerGpu" type="number" min="1" step="1" value="2">
           </div>
           <div class="field">
             <div class="label-line" data-tip="Primitive robot control rate in Hz. It scales environment steps/s, horizon production rate, and RTC lookahead."><label for="frequency">Control frequency f</label></div>
@@ -698,15 +698,15 @@
             <input id="horizon" type="number" min="1" step="1" value="100">
           </div>
           <div class="field">
-            <div class="label-line" data-tip="Serialized payload for one full rollout policy version. Default uses the observed Pi0.5-3B BF16 publish payload."><label for="weightPayload">Model weight payload W (GB)</label></div>
-            <input id="weightPayload" type="number" min="0.001" step="0.1" value="8.5">
-            <span class="hint">Default is the Pi0.5-3B BF16 publish payload, not just raw parameter bytes.</span>
+            <div class="label-line" data-tip="Serialized payload for one full rollout policy version. Default uses a 6GB BF16 parameter-payload sizing point; increase this if the real publish payload includes extra state_dict overhead."><label for="weightPayload">Model weight payload W (GB)</label></div>
+            <input id="weightPayload" type="number" min="0.001" step="0.1" value="6">
+            <span class="hint">Default is a 6GB BF16 parameter-payload sizing point; measured publish payloads can be larger.</span>
           </div>
           <div class="field">
             <div class="label-line" data-tip="Replay FIFO insert unit. Step-level stores one entry per primitive step; chunk-level stores one entry per action chunk."><label for="replayUnit">Replay granularity R_unit</label></div>
             <select id="replayUnit">
-              <option value="chunk" selected>chunk</option>
-              <option value="step">step</option>
+              <option value="step" selected>step</option>
+              <option value="chunk">chunk</option>
             </select>
           </div>
           <div class="field">
@@ -738,7 +738,7 @@
           </div>
           <div class="field">
             <div class="label-line" data-tip="B_rollout_inter: effective aggregate bandwidth between rollout physical nodes for the optimal sharded-scatter path. This is rollout-cluster east-west network capacity, not PCIe/NVLink inside one node."><label for="rolloutInterBw">B_rollout_inter: rollout inter-node collective (Gbps)</label></div>
-            <input id="rolloutInterBw" type="number" min="1" step="1" value="800">
+            <input id="rolloutInterBw" type="number" min="1" step="1" value="100">
           </div>
           <div class="field">
             <div class="label-line" data-tip="Measured or assumed p99 bucket for capture, preprocess, small transport lower bound, pack/unpack, and ser/deser before inference."><label for="obsP99">Observation pipeline p99 T_obs (s)</label></div>
@@ -764,7 +764,7 @@
         <div class="group-body">
           <div class="field">
             <div class="label-line" data-tip="Total aggregate effective bandwidth per direction between train and rollout clusters, not per link. Replay uses rollout->train; weight sync uses train->rollout."><label for="crossBw">Cross-cluster aggregate bandwidth per direction (Gbps)</label></div>
-            <input id="crossBw" type="number" min="1" step="1" value="400">
+            <input id="crossBw" type="number" min="1" step="1" value="10">
             <span class="hint">Total aggregate effective bandwidth per direction; assumes symmetric full-duplex capacity.</span>
           </div>
           <div class="field">
@@ -1284,22 +1284,22 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         replayUnit: selectValue("replayUnit"),
         L: numberValue("lagL", 1),
         K: updateKHorizons,
-        KEnv: Math.max(numberValue("robotsPerGpu", 1), 1),
+        KEnv: Math.max(numberValue("robotsPerGpu", 2), 1),
         G: Math.max(numberValue("rolloutGpusPerNode", 8), 1),
         BRolloutIntra: Math.max(numberValue("rolloutIntraBw", 64), 0.001),
         obsP99: numberValue("obsP99", 0.01),
         inferP99: numberValue("inferP99", 0.15),
         actionP99: numberValue("actionP99", 0.01),
         jitterP99: numberValue("jitterP99", 0.05),
-        BCross: Math.max(numberValue("crossBw", 400), 0.001),
-        BRolloutInter: Math.max(numberValue("rolloutInterBw", 800), 0.001),
+        BCross: Math.max(numberValue("crossBw", 10), 0.001),
+        BRolloutInter: Math.max(numberValue("rolloutInterBw", 100), 0.001),
         weightPath: selectValue("weightPath"),
         Tgpu: Math.max(numberValue("trainGpus", 32), 1),
         Gtrain: Math.max(numberValue("trainGpusPerNode", 8), 1),
         updatePeriod,
         SStep: Math.max(stepPayload, 0.001),
         SChunk: Math.max(chunkPayload, 0.001),
-        W: Math.max(numberValue("weightPayload", 8.5), 0.001),
+        W: Math.max(numberValue("weightPayload", 6), 0.001),
         derivedStep,
         useDerivedStep
       };
