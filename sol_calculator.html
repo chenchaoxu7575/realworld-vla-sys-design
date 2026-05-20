@@ -966,13 +966,13 @@
                 <th>Rollout intra time</th>
                 <th>SoL ref (sum)</th>
                 <th>Pipelined LB</th>
-                <th>Reduction vs direct</th>
+                <th>Reduction vs direct (sum)</th>
               </tr>
             </thead>
             <tbody id="fanoutTable"></tbody>
           </table>
         </div>
-        <p class="table-note">Path names: Direct = direct per-GPU fanout; Node fanout = per-node scatter + allgather; Hierarchical = optimal sharded scatter + rollout inter-node collective.</p>
+        <p class="table-note">Path names: Direct = direct per-GPU fanout; Node fanout = per-node scatter + allgather; Hierarchical = optimal sharded scatter + rollout inter-node collective. Reduction vs direct (sum) compares SoL ref (sum) time, not pipelined LB.</p>
 
         <h3>Version Lag Requirement</h3>
         <div class="deadline-strip" id="deadlineStrip"></div>
@@ -1582,8 +1582,8 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
 
     function renderFanout(input, data) {
       const directLocal = 0;
-      const nodeReduction = data.directBytesGB / data.nodeScatterBytesGB;
-      const optimalReduction = data.directBytesGB / data.optimalCrossBytesGB;
+      const nodeReduction = data.directNoPipelineSec / data.nodeNoPipelineSec;
+      const optimalReduction = data.directNoPipelineSec / data.optimalNoPipelineSec;
       setRows("fanoutTable", [
         row([
           "Direct",
@@ -1609,7 +1609,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
           fmtSeconds(data.rolloutIntraSec),
           fmtSeconds(data.nodeNoPipelineSec),
           fmtSeconds(data.nodePipelinedSec),
-          `${fmt(nodeReduction, 1)}x`
+          `${nodeReduction.toFixed(1)}x`
         ], input.weightPath === "node" ? "active-row" : ""),
         row([
           "Hierarchical",
@@ -1622,7 +1622,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
           fmtSeconds(data.rolloutIntraSec),
           fmtSeconds(data.optimalNoPipelineSec),
           fmtSeconds(data.optimalPipelinedSec),
-          `${fmt(optimalReduction, 1)}x`
+          `${optimalReduction.toFixed(1)}x`
         ], input.weightPath === "optimal" ? "active-row" : "")
       ]);
     }
@@ -1793,7 +1793,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         `<span class="legend-item"><span class="legend-swatch" style="background:${path.color}"></span>${path.label}</span>`
       )).join("");
       $("weightSyncChart").innerHTML = [
-        `<div class="chart-actions"><span>Lines show SoL ref (sum). Wheel zoom, drag select, hover values, double-click reset.</span><button type="button" class="chart-reset" id="chartReset">Reset</button></div>`,
+        `<div class="chart-actions"><span>Lines show SoL ref (sum). Wheel zoom, drag pan, Shift+drag select, hover values, double-click reset.</span><button type="button" class="chart-reset" id="chartReset">Reset</button></div>`,
         `<svg id="weightSyncSvg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Weight sync sum reference by cross-cluster bandwidth">`,
         `<rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/>`,
         yTicks.map((tick) => `<line x1="${pad.left}" y1="${y(tick)}" x2="${width - pad.right}" y2="${y(tick)}" stroke="#edf1f6"/><text x="${pad.left - 8}" y="${y(tick) + 4}" text-anchor="end" fill="#657085" font-size="11">${fmtSeconds(tick)}</text>`).join(""),
@@ -1823,6 +1823,8 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       if (!svg || !hover) return;
       const paths = weightPathSpecs(data);
       let dragStartX = null;
+      let dragMode = null;
+      let dragStartRange = null;
 
       function hoverAt(event) {
         const svgX = chartSvgX(event, svg, cfg.width);
@@ -1854,29 +1856,46 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
 
       svg.addEventListener("mousemove", (event) => {
         hoverAt(event);
-        if (dragStartX !== null) setSelection(dragStartX, chartSvgX(event, svg, cfg.width));
+        if (dragStartX !== null && dragMode === "zoom") setSelection(dragStartX, chartSvgX(event, svg, cfg.width));
       });
       svg.addEventListener("mouseleave", () => {
         hover.textContent = "Hover over plot for values.";
         clearSelection();
         dragStartX = null;
+        dragMode = null;
+        dragStartRange = null;
       });
       svg.addEventListener("mousedown", (event) => {
         const svgX = chartSvgX(event, svg, cfg.width);
-        if (svgX >= cfg.pad.left && svgX <= cfg.width - cfg.pad.right) dragStartX = svgX;
+        if (svgX >= cfg.pad.left && svgX <= cfg.width - cfg.pad.right) {
+          if (event.preventDefault) event.preventDefault();
+          dragStartX = svgX;
+          dragMode = event.shiftKey ? "zoom" : "pan";
+          dragStartRange = { bMin: cfg.bMin, bMax: cfg.bMax };
+        }
       });
       svg.addEventListener("mouseup", (event) => {
         if (dragStartX === null) return;
         const endX = chartSvgX(event, svg, cfg.width);
         const span = Math.abs(endX - dragStartX);
         clearSelection();
-        if (span > 12) {
+        if (dragMode === "zoom" && span > 12) {
           const nextMin = chartBandwidthAtX(Math.min(dragStartX, endX), cfg);
           const nextMax = chartBandwidthAtX(Math.max(dragStartX, endX), cfg);
           setWeightChartRange(nextMin, nextMax);
           renderWeightSyncChart(input, data);
+        } else if (dragMode === "pan" && span > 4 && dragStartRange) {
+          const delta = endX - dragStartX;
+          const startLogMin = Math.log10(dragStartRange.bMin);
+          const startLogMax = Math.log10(dragStartRange.bMax);
+          const logSpan = startLogMax - startLogMin;
+          const shift = -delta / cfg.plotW * logSpan;
+          setWeightChartRange(Math.pow(10, startLogMin + shift), Math.pow(10, startLogMax + shift));
+          renderWeightSyncChart(input, data);
         }
         dragStartX = null;
+        dragMode = null;
+        dragStartRange = null;
       });
       svg.addEventListener("dblclick", () => {
         weightChartRange = null;

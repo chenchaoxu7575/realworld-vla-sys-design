@@ -814,6 +814,12 @@ Path names in the UI:
 | Node fanout | per-node scatter + allgather |
 | Hierarchical | optimal sharded scatter + rollout inter-node collective |
 
+`Reduction vs direct` in the Path Cost table should use the sum reference, not the pipelined lower bound:
+
+```text
+reduction_vs_direct_sum = T_sync_ref_direct / T_sync_ref_path
+```
+
 Frequency sweeps such as 10/30/90Hz should be presented as optional sensitivity views, not as the main table. The main calculator should always use the current input `f`.
 
 `Min L for sync` should use the sum reference path time:
