@@ -45,10 +45,11 @@ Implementation notes in this file should be read as constraints implied by the S
 
 | Parameter | Symbol | v0 value |
 |---|---:|---:|
-| Number of robots | `N` | 100 |
-| Rollout mapping | - | 1 GPU : 1 robot |
-| Rollout GPUs per physical node | `G` | default 8 |
-| Rollout physical nodes | `M_rollout = ceil(N / G)` | 13 for `N=100,G=8` |
+| Number of physical robots | `N_robot` | 100 |
+| Robots per rollout GPU | `K_env` | default 1; supports `1:k` rollout |
+| Rollout GPUs | `N_rollout_gpu = ceil(N_robot / K_env)` | 100 for `N_robot=100,K_env=1` |
+| Rollout GPUs per physical node | `G_max` | default 8 |
+| Rollout physical nodes | `M_rollout = ceil(N_rollout_gpu / G_max)` | 13 for `N_rollout_gpu=100,G_max=8` |
 | Train GPUs | `T_gpu` | default 32, variable |
 | Train GPUs per physical node | `G_train` | default 8 |
 | Train physical nodes | `M_train = ceil(T_gpu / G_train)` | derived |
@@ -70,12 +71,14 @@ Implementation notes in this file should be read as constraints implied by the S
 | Weight sync policy | - | sync after each train update, initially full weights |
 | Allowed policy version lag | `L` | 1, 2, 4, 8 versions |
 | Cross-cluster bandwidth | `B_cross` | total aggregate effective bandwidth per direction; default symmetric full-duplex |
+| Rollout-internal collective bandwidth | `B_rollout_collective` | total effective aggregate bandwidth for rollout-cluster weight allgather/broadcast |
 
 Notes:
 
 - `W=8.5GB` comes from the observed RLinf Pi0.5 3B run. Pure BF16 parameters for 3B params would be about 6GB, but SOL should use the larger measured sync payload until proven otherwise.
 - `S_step=1MB` is kept as the v0 step-level sizing point, but it should be derived from the observation payload model below rather than treated as a magic constant.
 - Current RLinf pi0.5 real-world style replay is closer to `chunk` granularity: with `H=100` and `C=50`, one episode has about 2 replay entries, not 100.
+- For `K_env > 1`, the RTC timing buckets must be measured under the actual multi-robot rollout policy. Inference batching, local fan-in/fan-out, CPU preprocessing, and replay spooling are not decomposed in v0.
 
 ## Not Yet Modeled
 
@@ -85,7 +88,7 @@ This section records workload factors that are intentionally outside the current
 
 | Factor | Why it matters | Current treatment |
 |---|---|---|
-| Real-robot reset after success/failure | Reset consumes wall-clock time and robot capacity; effective sample rate is lower than `N * f` if reset is frequent or slow | Not modeled |
+| Real-robot reset after success/failure | Reset consumes wall-clock time and robot capacity; effective sample rate is lower than `N_robot * f` if reset is frequent or slow | Not modeled |
 | Reset scheduling vs replay/weight traffic | Reset may need commands, observations, safety checks, and status messages that contend with control/replay/weight paths | Not modeled |
 | Episode length distribution | Current tables assume max horizon `H=100`; early success/failure changes trajectory rate and reset frequency | Simplified as fixed `H` |
 | Task setup variability | Object placement, scene reset, fixture motion, human cleanup, or automated reset stations can dominate robot utilization | Not modeled |
@@ -97,13 +100,13 @@ Reset should eventually enter the SOL model as:
 T_episode = H_effective / f
 T_cycle = T_episode + T_reset
 effective_robot_utilization = T_episode / T_cycle
-effective_env_steps_per_sec = N * f * effective_robot_utilization
+effective_env_steps_per_sec = N_robot * f * effective_robot_utilization
 ```
 
 System fault tolerance should eventually enter as an availability multiplier:
 
 ```text
-N_effective = N * availability
+N_effective = N_robot * availability
 effective_env_steps_per_sec = N_effective * f * effective_robot_utilization
 ```
 
@@ -116,7 +119,7 @@ But v0 does not model HA design, failover, checkpoint recovery, replay durabilit
 | Pi0.5 chunk inference p50/p99 | RTC non-stop depends on chunk generation fitting inside RTC lookahead, not full chunk coverage | Modeled as a required measurement, not estimated |
 | RTC overlap / stride | With half-overlap RTC, effective lookahead is `(C/2)/f`, not `C/f` | Modeled with `S_rtc=C/2` |
 | 90Hz with small effective chunks | At 90Hz, `C=50` gives only 0.28s lookahead under half-overlap RTC | Partially modeled through RTC lookahead |
-| 1 rollout rank : N robots | Fan-in observations and fan-out actions introduce batching barriers; GPU cost may drop but per-robot latency may not | Out of scope for v0; v0 assumes 1 GPU : 1 robot |
+| 1 rollout GPU : `K_env` robots | Fan-in observations and fan-out actions introduce batching barriers; GPU cost and weight-sync recipients may drop, but per-robot latency may not | Parameterized through `K_env`; detailed batching/fan-in model is out of scope |
 | Sensor pipeline jitter | Camera exposure, frame sync, dropped frames, USB/PCIe contention, compression CPU load, and timestamp skew affect RTC p99 | Modeled as `T_jitter_p99` input |
 | Pack/unpack and ser/deser | H2D/D2H/PCIe/wire lower bounds are easy to derive, but packing, tensor layout, serialization format, and runtime boundaries are workload-specific | Kept inside measured `T_obs_pipeline` / `T_action_pipeline` buckets |
 | Low-level controller limits | Servo loop behavior, actuator limits, safety filters, and robot firmware timing can cap real control frequency | Not modeled |
@@ -144,7 +147,7 @@ But v0 does not model HA design, failover, checkpoint recovery, replay durabilit
 
 | Factor | Why it matters | Current treatment |
 |---|---|---|
-| Serialization and tensor/message count | For MB-scale payloads, per-call setup and tensor count can dominate raw bytes | Only represented as payload overhead |
+| Serialization and tensor/message count | For MB-scale payloads, per-call setup and tensor count can dominate raw bytes | Only represented as payload overhead and measured p99 buckets |
 | Packing vs streaming | Merging many tensors can reduce per-call overhead; streaming can overlap wire time | Represented as measured RTC pipeline overhead, not a pure bandwidth formula |
 | Cross-cluster fabric jitter and packet loss | The SOL model assumes symmetric full-duplex per-direction bandwidth; endpoint contention and oversubscription can still create p99 stalls | Not modeled beyond `B_cross` |
 | CPU contention on rollout nodes | Compression, replay export, model activation, camera ingest, and control tasks can compete | Not modeled |
@@ -275,8 +278,8 @@ Source note:
 +----------------------------------------------------------------+
 | Rack / pod 0                                                   |
 |   Weight cache / local fanout                                  |
-|   Rollout node 0: GPU infer + robot 0 + RTC controller         |
-|   Rollout node 1: GPU infer + robot 1 + RTC controller         |
+|   Rollout node 0: GPU infer + K_env robots + RTC controllers   |
+|   Rollout node 1: GPU infer + K_env robots + RTC controllers   |
 |   ...                                                          |
 |                                                                |
 | Rack / pod K                                                   |
@@ -300,20 +303,23 @@ Critical rule: robot control and RTC action consumption must never wait on repla
 
 ## Cluster Scale Variables
 
-Rollout cluster scale is directly determined by robot count under the v0 `1 GPU : 1 robot` assumption:
+Rollout cluster scale is determined by robot count and the selected rollout multiplexing factor `K_env`:
 
 ```text
-rollout_gpu_count = N
-M_rollout = ceil(N / G)
+N_rollout_gpu = ceil(N_robot / K_env)
+M_rollout = ceil(N_rollout_gpu / G_max)
+r_i = min(G_max, N_rollout_gpu - i * G_max)    # active rollout GPU ranks on node i
 ```
 
-For `N=100`:
+For `N_robot=100`:
 
-| Rollout GPUs / physical node `G` | Rollout GPUs | Physical rollout nodes `M_rollout` |
-|---:|---:|---:|
-| 1 | 100 | 100 |
-| 4 | 100 | 25 |
-| 8 | 100 | 13 |
+| Robots per rollout GPU `K_env` | Rollout GPUs `N_rollout_gpu` | GPUs / physical node `G_max` | Physical rollout nodes `M_rollout` |
+|---:|---:|---:|---:|
+| 1 | 100 | 8 | 13 |
+| 2 | 50 | 8 | 7 |
+| 4 | 25 | 8 | 4 |
+
+For any weight-sync calculation that uses intra-node collectives, use the actual active rank count `r_i`, not always `G_max`. For example, `N_rollout_gpu=4,G_max=8` means the single rollout node has `r=4`; it must not be modeled as an 8-rank allgather.
 
 Train cluster scale is a variable. It should not be derived from robot count directly. In the SOL model, train scale only matters through:
 
@@ -337,7 +343,7 @@ Useful train-side variables:
 
 Interpretation:
 
-- Rollout sizing is workload-fixed by `N` and `G`.
+- Rollout sizing is workload-fixed by `N_robot`, `K_env`, and `G_max`.
 - Train sizing is a tunable knob to hit a target `T_train_update`.
 - The main SOL tables should accept `T_train_update` as an input; an expandable helper can estimate it from `T_gpu`, `M_train`, FSDP communication, and compute.
 - Weight publishers may be colocated with train nodes or separated into a publishing tier. For the main SOL model, expose only the aggregate effective downlink `B_cross`, not the number of publisher links.
@@ -365,6 +371,8 @@ Step intervals:
 | 90Hz | 11.1ms |
 
 90Hz is a hard real-time engineering regime. The robot controller should consume already-prepared actions from a local ring buffer; it should not call the model inline.
+
+For `K_env > 1`, this path becomes a local fan-in problem. The v0 SOL model does not decompose camera capture, CPU preprocessing, batch assembly, H2D, or per-robot queueing. Instead, `T_obs_pipeline_p99`, `T_infer_p99`, and `T_action_pipeline_p99` should be treated as already-inclusive p99 measurements for the chosen `K_env` and batching policy.
 
 ### Path 2: Action Chunk, Inference to Robot
 
@@ -438,14 +446,14 @@ Queue depth tradeoff:
 
 ### Path 3: Replay Buffer, Rollout to Trainer
 
-Replay bandwidth depends on `R_unit`, but the most important FIFO producer metric is horizon production rate:
+Replay bandwidth depends on `R_unit`, but the most important aggregate FIFO producer metric is still robot execution rate:
 
 ```text
-RB_produce_horizons_per_sec = N * f / H
-RB_produce_steps_per_sec    = N * f
+RB_produce_horizons_per_sec = N_robot * f / H
+RB_produce_steps_per_sec    = N_robot * f
 ```
 
-For the default `N=100`, `f=10Hz`, `H=100`, the real-robot fleet produces:
+For the default `N_robot=100`, `f=10Hz`, `H=100`, the real-robot fleet produces:
 
 ```text
 10 horizons/s
@@ -454,14 +462,23 @@ For the default `N=100`, `f=10Hz`, `H=100`, the real-robot fleet produces:
 
 Replay ingest should report replay entries, represented primitive steps, and represented primitive steps per MB. Chunk-level replay can have low insert count while still representing the full robot execution stream.
 
+For `K_env > 1`, aggregate replay production does not shrink if `N_robot` is fixed. What changes is local pressure on each rollout GPU/node:
+
+```text
+RB_steps_per_full_rollout_gpu    = K_env * f
+RB_horizons_per_full_rollout_gpu = K_env * f / H
+```
+
+Tail GPUs may own fewer than `K_env` robots. The calculator should report both aggregate replay pressure and per-rollout-GPU pressure, because local spool/upload contention can become visible even when aggregate bytes are unchanged.
+
 Current-input table shape:
 
 | Replay unit | Horizons/s | Entries/horizon | Entries/s | Payload/entry | Ingest bandwidth | Represented steps/s | Represented steps/MB |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Step-level | `N*f/H` | `H` | `N*f` | `S_step` | `N*f*S_step` | `N*f` | `1/S_step` |
-| Chunk-level | `N*f/H` | `ceil(H/C)` | `N*f/H*ceil(H/C)` | `S_chunk` | `N*f/H*ceil(H/C)*S_chunk` | `N*f` | `H/(ceil(H/C)*S_chunk)` |
+| Step-level | `N_robot*f/H` | `H` | `N_robot*f` | `S_step` | `N_robot*f*S_step` | `N_robot*f` | `1/S_step` |
+| Chunk-level | `N_robot*f/H` | `ceil(H/C)` | `N_robot*f/H*ceil(H/C)` | `S_chunk` | `N_robot*f/H*ceil(H/C)*S_chunk` | `N_robot*f` | `H/(ceil(H/C)*S_chunk)` |
 
-Default example with `N=100`, `f=10Hz`, `H=100`, `C=50`, `S_step=S_chunk=1MB`:
+Default example with `N_robot=100`, `f=10Hz`, `H=100`, `C=50`, `S_step=S_chunk=1MB`:
 
 | Replay unit | Horizons/s | Entries/horizon | Entries/s | Ingest bandwidth | Line rate | Represented steps/MB |
 |---|---:|---:|---:|---:|---:|---:|
@@ -530,19 +547,20 @@ Still-out-of-scope caveats:
 
 This is the main SOL risk if full weights are synced after every train update.
 
-There are two useful SOL paths:
+There are three useful SOL paths:
 
 1. Direct per-GPU fanout: train publishers send one full weight copy to every rollout GPU.
-2. Per-node scatter plus intra-node allgather: train publishers send one full model copy per physical inference node, sharded across its `G` rollout GPUs, then GPUs allgather locally so each DP inference GPU ends with full weights.
+2. Per-node scatter plus intra-node allgather: train publishers send one full model copy per physical inference node, sharded across the node's active rollout GPUs, then GPUs allgather locally so each DP inference GPU ends with full weights.
+3. Cross-cluster sharded scatter plus rollout-internal collective: train sends exactly one full model copy total, sharded across rollout physical nodes; the rollout cluster then performs an internal allgather/broadcast so each rollout node has a full copy before local GPU fanout.
 
-The second path is the SOL architecture if rollout servers have multiple GPUs. A simpler root-receive plus local broadcast path is useful as a baseline, but it creates a root GPU/NIC/PCIe hotspot and should not be treated as the optimal design.
+The third path is the theoretical SOL communication lower bound for full-weight sync. It is more general than choosing a seed count `S`: it assumes the cross-cluster payload is perfectly sharded across rollout nodes, and the rollout cluster has its own effective collective bandwidth. A simpler root-receive plus local broadcast path is useful as a baseline, but it creates a root GPU/NIC/PCIe hotspot and should not be treated as the optimal design.
 
 #### Direct Per-GPU Fanout
 
-For `W=8.5GB` and `N=100`:
+For `W=8.5GB` and `N_rollout_gpu=100`:
 
 ```text
-total fanout bytes per version = 850GB
+total fanout bytes per version = N_rollout_gpu * W = 850GB
 ```
 
 Receiver-side lower bound for one rollout GPU:
@@ -556,7 +574,7 @@ Receiver-side lower bound for one rollout GPU:
 But source/publisher aggregate egress dominates. In the main SOL model, use aggregate effective downlink bandwidth directly:
 
 ```text
-T_fanout >= (N * W) * 8 / B_cross_down
+T_fanout >= (N_rollout_gpu * W) * 8 / B_cross_down
 ```
 
 Where:
@@ -564,7 +582,7 @@ Where:
 - `B_cross_down` is the total aggregate effective train-to-rollout bandwidth in Gbps.
 - A topology helper can later derive `B_cross_down` from link count, NIC rate, and efficiency, but the main SOL tables should not expose those as first-layer inputs.
 
-Raw ideal fanout time for `N*W=850GB`:
+Raw ideal fanout time for `N_rollout_gpu*W=850GB`:
 
 | Effective downlink | Ideal direct fanout time |
 |---:|---:|
@@ -578,46 +596,49 @@ Planning should not use raw line rate. At 60-70% effective throughput, add rough
 
 #### Per-Node Scatter plus Intra-Node Allgather
 
-If a physical inference node has `G` rollout GPUs, the train publishers should send one disjoint `W/G` shard to each GPU in the node. The node then runs an intra-node allgather through NVLink/NVSwitch/PCIe/NCCL so every GPU has the full DP inference model.
+If a physical inference node has `r_i` active rollout GPUs, the train publishers should send one disjoint `W/r_i` shard to each active GPU in the node. The node then runs an intra-node allgather through NVLink/NVSwitch/PCIe/NCCL so every GPU has the full DP inference model.
 
 This keeps cross-cluster bytes at one model copy per physical inference node, while avoiding a single root GPU receiving the whole model.
 
 Definitions:
 
 ```text
-M = ceil(N / G)                   # number of physical rollout nodes
+M = ceil(N_rollout_gpu / G_max)                  # number of physical rollout nodes
+r_i = min(G_max, N_rollout_gpu - i * G_max)      # active rollout GPUs on node i
+
 cross_cluster_bytes = M * W
-cross_cluster_bytes_per_gpu = W / G
-intra_node_allgather_recv_per_gpu = (G - 1) / G * W
-intra_node_allgather_send_recv_per_gpu = 2 * (G - 1) / G * W
-intra_node_allgather_aggregate = (G - 1) * W per full node per direction
+cross_cluster_bytes_per_gpu_i = W / r_i
+intra_node_allgather_recv_per_gpu_i = (r_i - 1) / r_i * W
+intra_node_allgather_send_recv_per_gpu_i = 2 * (r_i - 1) / r_i * W
+intra_node_allgather_aggregate_i = (r_i - 1) * W per node per direction
 ```
 
 Timing lower bounds:
 
 ```text
-T_sync_direct = (N * W) * 8 / B_cross_down
+T_sync_direct = (N_rollout_gpu * W) * 8 / B_cross_down
 
 T_sync_node_cross = (M * W) * 8 / B_cross_down
-T_sync_node_local = (2 * (G - 1) / G * W) / B_local_allgather_bidirectional_GBps
+T_sync_node_local_i = (2 * (r_i - 1) / r_i * W) / B_local_allgather_bidirectional_GBps
+T_sync_node_local_critical = max_i(T_sync_node_local_i)
 
-T_sync_node_no_pipeline = T_sync_node_cross + T_sync_node_local
-T_sync_node_pipeline_lb = max(T_sync_node_cross, T_sync_node_local)
+T_sync_node_no_pipeline = T_sync_node_cross + T_sync_node_local_critical
+T_sync_node_pipeline_lb = max(T_sync_node_cross, T_sync_node_local_critical)
 ```
 
-The per-node path is not slower on the cross-cluster network. It reduces cross-cluster bytes by roughly `G`, but adds local allgather work. In this model, `B_local_allgather_bidirectional_GBps` is the per-GPU bidirectional send+recv aggregate bandwidth in GB/s. The important comparison is therefore cross time, local send+recv/GPU, local time, no-pipeline total, and pipelined lower bound.
+The per-node path is not slower on the cross-cluster network. It reduces cross-cluster bytes by roughly the average number of active GPUs per rollout node, but adds local allgather work. In this model, `B_local_allgather_bidirectional_GBps` is the per-GPU bidirectional send+recv aggregate bandwidth in GB/s. The important comparison is therefore cross time, local send+recv/GPU on the critical node, local time, no-pipeline total, and pipelined lower bound.
 
-For `N=100`, `W=8.5GB`:
+For `N_rollout_gpu=100`, `W=8.5GB`:
 
-| GPUs per inference node `G` | Physical rollout nodes `M` | Cross-cluster bytes/version | Cross-cluster bytes/GPU | Intra-node aggregate/version per direction | Cross-cluster reduction vs direct |
+| GPUs per inference node `G_max` | Physical rollout nodes `M` | Cross-cluster bytes/version | Cross-cluster bytes/GPU | Intra-node aggregate/version per direction | Cross-cluster reduction vs direct |
 |---:|---:|---:|---:|---:|---:|
 | 1 | 100 | 850.0GB | 8.50GB | 0GB | 1.0x |
 | 4 | 25 | 212.5GB | 2.13GB | 637.5GB | 4.0x |
-| 8 | 13 | 110.5GB | 1.06GB | 739.5GB | 7.7x |
+| 8 | 13 | 110.5GB | 1.06GB full nodes; 2.13GB tail node | 714.0GB full nodes + 25.5GB tail = 739.5GB | 7.7x |
 
 Optional sensitivity view for one update per 100-step horizon:
 
-| Frequency | Direct, G=1 | Node scatter, G=4 | Node scatter, G=8 |
+| Frequency | Direct, `G_max=1` | Node scatter, `G_max=4` | Node scatter, `G_max=8` |
 |---:|---:|---:|---:|
 | 10Hz | 680Gbps | 170Gbps | 88Gbps |
 | 30Hz | 2.0Tbps | 510Gbps | 265Gbps |
@@ -640,7 +661,7 @@ But this should be pipeline-parallel, not root-serialized. Per GPU, the allgathe
 With the calculator's local bandwidth convention, the time model uses bidirectional send+recv traffic:
 
 ```text
-2 * (G - 1) / G * W = 14.88GB per GPU for G=8,W=8.5GB
+2 * (r - 1) / r * W = 14.88GB per GPU for a full `r=8,W=8.5GB` node
 ```
 
 Two useful lower-bound models:
@@ -670,6 +691,47 @@ Interpretation:
 - For 10Hz/30Hz, 8-GPU nodes with NCCL allgather are attractive.
 - For 90Hz, PCIe-only allgather may be acceptable only if the effective p99 is measured and model activation is fast; NVLink/NVSwitch gives much more margin.
 - If rollout servers are single-GPU edge boxes, this optimization does not apply.
+
+#### Cross-Cluster Sharded Scatter plus Rollout-Internal Collective
+
+This is the theoretical full-weight communication lower bound for the system design. Instead of choosing a fixed seed count, train sends one full model copy total, sharded across rollout physical nodes. The rollout cluster then performs an internal allgather/broadcast so every rollout physical node has a full model copy, followed by the same intra-node GPU allgather as needed.
+
+Definitions:
+
+```text
+M = ceil(N_rollout_gpu / G_max)
+cross_cluster_bytes = W
+cross_cluster_bytes_per_rollout_node = W / M
+
+rollout_internal_collective_bytes = (M - 1) * W
+B_rollout_collective = total effective aggregate rollout-internal collective bandwidth
+```
+
+Timing lower bounds:
+
+```text
+T_sync_optimal_cross = W * 8 / B_cross_down
+T_sync_optimal_rollout = (M - 1) * W * 8 / B_rollout_collective
+T_sync_optimal_local = T_sync_node_local_critical
+
+T_sync_optimal_no_pipeline =
+  T_sync_optimal_cross
++ T_sync_optimal_rollout
++ T_sync_optimal_local
+
+T_sync_optimal_pipeline_lb = max(
+  T_sync_optimal_cross,
+  T_sync_optimal_rollout,
+  T_sync_optimal_local
+)
+```
+
+This path is intentionally a SOL lower bound:
+
+- Train-side cross-cluster traffic is exactly one model copy, `W`.
+- Rollout-internal bandwidth is abstracted as `B_rollout_collective`; v0 does not decompose rack topology, seed placement, tree fanout, receiver NICs, or protocol efficiency.
+- The rollout collective must not interfere with RTC p99.
+- `T_export`, checksum/validation, and `T_apply` remain separate from this communication lower bound.
 
 ## Clock Analysis
 
@@ -708,10 +770,10 @@ T_train_update + T_export + T_weight_sync + T_apply <= L * T_update
 Full-weight sync every control step is impossible:
 
 ```text
-100 robots * 8.5GB * f
+N_rollout_gpu * W * f
 ```
 
-At 10Hz this would be 8.5TB/s of weight traffic. At 90Hz it would be 76.5TB/s.
+With the default `N_rollout_gpu=100,W=8.5GB`, at 10Hz this would be 8.5TB/s of direct per-GPU weight traffic. At 90Hz it would be 76.5TB/s.
 
 Therefore "1-step-off" must be defined as one training-version off, not one robot-control-step off, unless the sync payload is reduced from full model weights to a very small delta.
 
@@ -724,25 +786,31 @@ T_update = K * H / f
 T_publish <= L * T_update
 deadline = L * T_update
 required_B_cross_direct = direct_weight_bytes * 8 / deadline
-required_B_cross_node_no_pipeline = node_scatter_bytes * 8 / (deadline - T_local_allgather)
+required_B_cross_node_lb = node_scatter_bytes * 8 / deadline
+required_B_cross_optimal_lb = W * 8 / deadline
+required_B_rollout_collective_optimal_lb = (M - 1) * W * 8 / deadline
 ```
 
 `L=1` is the ideal 1-version-off target. Higher `L` values relax policy freshness but may be operationally necessary for full-model sync.
 
-For the node-scatter path, `required_B_cross_node_no_pipeline` is infeasible when `deadline <= T_local_allgather`.
+For lower-bound capacity checks, cross-cluster bandwidth, rollout-internal collective bandwidth, and local allgather time should be checked separately. A stricter no-pipeline implementation can subtract local time from the cross-cluster deadline, but that is not the SOL lower bound.
 
-For the default current-input case `N=100`, `f=30Hz`, `H=100`, `K=1`, `W=8.5GB`, `G=8`, and `B_local=64GB/s`:
+For the default current-input case `N_robot=100`, `K_env=1`, `f=30Hz`, `H=100`, `K=1`, `W=8.5GB`, `G_max=8`, and `B_local=64GB/s`:
 
-| Path | L | Deadline | Local time | Required `B_cross` |
-|---|---:|---:|---:|---:|
-| Direct per-GPU | 1 | 3.33s | N/A | 2.04Tbps |
-| Direct per-GPU | 2 | 6.67s | N/A | 1.02Tbps |
-| Direct per-GPU | 4 | 13.33s | N/A | 510Gbps |
-| Direct per-GPU | 8 | 26.67s | N/A | 255Gbps |
-| Per-node scatter + allgather, `G=8` | 1 | 3.33s | 0.23s | 285Gbps |
-| Per-node scatter + allgather, `G=8` | 2 | 6.67s | 0.23s | 137Gbps |
-| Per-node scatter + allgather, `G=8` | 4 | 13.33s | 0.23s | 67Gbps |
-| Per-node scatter + allgather, `G=8` | 8 | 26.67s | 0.23s | 33Gbps |
+| Path | L | Deadline | Local time | Required `B_cross` | Required `B_rollout_collective` |
+|---|---:|---:|---:|---:|---:|
+| Direct per-GPU | 1 | 3.33s | N/A | 2.04Tbps | N/A |
+| Direct per-GPU | 2 | 6.67s | N/A | 1.02Tbps | N/A |
+| Direct per-GPU | 4 | 13.33s | N/A | 510Gbps | N/A |
+| Direct per-GPU | 8 | 26.67s | N/A | 255Gbps | N/A |
+| Per-node scatter + allgather, `G_max=8` | 1 | 3.33s | 0.23s | 265Gbps | N/A |
+| Per-node scatter + allgather, `G_max=8` | 2 | 6.67s | 0.23s | 133Gbps | N/A |
+| Per-node scatter + allgather, `G_max=8` | 4 | 13.33s | 0.23s | 66Gbps | N/A |
+| Per-node scatter + allgather, `G_max=8` | 8 | 26.67s | 0.23s | 33Gbps | N/A |
+| Optimal sharded scatter + rollout collective | 1 | 3.33s | 0.23s | 20Gbps | 245Gbps |
+| Optimal sharded scatter + rollout collective | 2 | 6.67s | 0.23s | 10Gbps | 122Gbps |
+| Optimal sharded scatter + rollout collective | 4 | 13.33s | 0.23s | 5Gbps | 61Gbps |
+| Optimal sharded scatter + rollout collective | 8 | 26.67s | 0.23s | 3Gbps | 31Gbps |
 
 Frequency sweeps such as 10/30/90Hz should be presented as optional sensitivity views, not as the main table. The main calculator should always use the current input `f`.
 
@@ -750,8 +818,9 @@ Frequency sweeps such as 10/30/90Hz should be presented as optional sensitivity 
 
 ```text
 T_sync_lb_direct = T_sync_direct
-T_sync_lb_node = max(T_sync_node_cross, T_local_allgather)
-T_sync_lb_selected = T_sync_lb_direct or T_sync_lb_node for selected path
+T_sync_lb_node = max(T_sync_node_cross, T_sync_node_local_critical)
+T_sync_lb_optimal = max(T_sync_optimal_cross, T_sync_optimal_rollout, T_sync_optimal_local)
+T_sync_lb_selected = T_sync_lb_direct, T_sync_lb_node, or T_sync_lb_optimal for selected path
 minL_sync_lb = max(1, ceil(T_sync_lb_selected / T_update))
 ```
 
@@ -773,7 +842,7 @@ T_update = K * H / f
 T_deadline = L * T_update
 ```
 
-For the default `N=100`, `f=10Hz`, `H=100`, `K=1`:
+For the default `N_robot=100`, `K_env=1`, `f=10Hz`, `H=100`, `K=1`:
 
 | Metric | Value |
 |---|---:|
@@ -889,9 +958,9 @@ Memory implication:
 
 1. Use the collective fanout lower bound, not single-source direct fanout.
 
-   A single publisher directly pushing full weights to 100 rollout GPUs is not the SOL path. The lower-bound path is hierarchical/collective fanout aligned with physical topology.
+   A single publisher directly pushing full weights to every rollout GPU is not the SOL path. The theoretical communication lower bound is one cross-cluster model copy, sharded across rollout nodes, followed by a rollout-internal collective.
 
-   If rollout inference nodes have multiple GPUs, prefer per-node scatter plus intra-node NCCL allgather. This reduces train-rollout network bytes by roughly `G`, balances receive load across GPUs, and avoids a root-GPU hotspot. The cost is local GPU fabric pressure and model activation coordination.
+   If rollout inference nodes have multiple GPUs, per-node scatter plus intra-node NCCL allgather is a practical middle path. It reduces train-rollout network bytes by roughly the active GPU count per node, balances receive load across GPUs, and avoids a root-GPU hotspot. The cost is local GPU fabric pressure and model activation coordination.
 
 2. Check replay and weight bandwidth by direction.
 
@@ -901,7 +970,7 @@ Memory implication:
 
 3. Treat 90Hz as a different operating mode.
 
-   At 90Hz, a 50-action chunk covers only 0.56s, and half-overlap RTC gives about 0.28s of lookahead. Full-weight sync per update becomes the dominant system constraint. Use adapter/delta sync or relaxed publish cadence unless there is very large effective weight downlink.
+   At 90Hz, a 50-action chunk covers only 0.56s, and half-overlap RTC gives about 0.28s of lookahead. Full-weight sync per update becomes the dominant system constraint unless the rollout cluster uses a strong collective path, adapter/delta sync, or relaxed publish cadence.
 
 4. Stream replay continuously.
 
@@ -927,6 +996,10 @@ Memory implication:
 
    The main system should consume `T_train_update` as an input. FSDP communication and train cluster topology matter, but only through the rate at which train can produce new policy versions.
 
+8. Treat `1:k` rollout as a measured p99 regime.
+
+   `K_env > 1` reduces rollout GPU count and weight-sync recipients, but shifts complexity into inference batching, local robot fan-in/fan-out, and per-GPU replay spool pressure. The v0 SOL model exposes `K_env` and local pressure metrics, while leaving detailed batching curves to measurement.
+
 ## First Bottleneck Read
 
 For 100 robots, the likely bottlenecks are:
@@ -946,9 +1019,11 @@ Build an interactive HTML SOL calculator after the formulas settle.
 
 Initial inputs:
 
-- `N`: robot count.
-- `G`: rollout GPUs per physical inference node.
-- `M_rollout`: derived rollout node count, `ceil(N / G)`.
+- `N_robot`: physical robot count.
+- `K_env`: robots per rollout GPU.
+- `N_rollout_gpu`: derived rollout GPU count, `ceil(N_robot / K_env)`.
+- `G_max`: rollout GPUs per physical inference node.
+- `M_rollout`: derived rollout node count, `ceil(N_rollout_gpu / G_max)`.
 - `T_gpu`: train GPU count, default 32.
 - `G_train`: train GPUs per physical node, default 8.
 - `M_train`: derived train physical node count, `ceil(T_gpu / G_train)`.
@@ -963,6 +1038,7 @@ Initial inputs:
 - `W`: model sync payload.
 - `L`: allowed policy version lag.
 - `B_cross`: total aggregate effective train-rollout bandwidth per direction, default symmetric full-duplex.
+- `B_rollout_collective`: total effective aggregate rollout-internal collective bandwidth for the optimal weight-sync path.
 - `B_local`: intra-node per-GPU bidirectional send+recv aggregate allgather bandwidth in GB/s; default PCIe 4.0 x16 theoretical is 64GB/s.
 - `T_obs_pipeline_p99`, `T_infer_p99`, `T_action_pipeline_p99`, `T_jitter_p99`: serial RTC next-chunk critical-path timing buckets; defaults are 0.010s, 0.150s, 0.010s, and 0.050s.
 - `T_train_update`, `T_export`, `T_apply`: policy-version latency placeholders until train-side modeling is added.
@@ -1001,8 +1077,8 @@ Proposed page hierarchy:
 
 5. Weight Sync.
 
-   - Path Cost: direct per-GPU vs per-node scatter + allgather.
-   - Version Lag Requirement: L=1/2/4/8 required `B_cross`; `B_local` is treated as fixed hardware and appears as local time.
+   - Path Cost: direct per-GPU vs per-node scatter + allgather vs optimal sharded scatter + rollout-internal collective.
+   - Version Lag Requirement: L=1/2/4/8 required `B_cross`; optimal path also reports required `B_rollout_collective`; `B_local` is treated as fixed hardware and appears as local time.
 
 6. Rollout Weight Update Deadline.
 
@@ -1038,3 +1114,4 @@ Layout will be designed separately once the system model stabilizes.
 13. What is `T_apply` for the target inference stack: transfer complete to model version active?
 14. How does producer/consumer scaling behave as `N_env` grows: where does rollout, replay ingest, sampling, or train update first stall?
 15. What availability assumption should be used for SOL capacity planning, given that full fault tolerance and disaster recovery are out of v0 scope?
+16. For `K_env > 1`, what are the measured p50/p99 inference latency and throughput curves as a function of batching policy and active robots per rollout GPU?

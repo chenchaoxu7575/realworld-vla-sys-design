@@ -534,8 +534,12 @@
         <summary>Core Workload</summary>
         <div class="group-body">
           <div class="field">
-            <div class="label-line" data-tip="Number of physical robots producing online rollout data. With the v0 assumption, this also equals rollout GPU count."><label for="robotCount">Robot count N</label></div>
+            <div class="label-line" data-tip="Number of physical robots producing online rollout data. Replay production scales with this value."><label for="robotCount">Physical robot count N_robot</label></div>
             <input id="robotCount" type="number" min="1" step="1" value="100">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Number of robots served by one rollout GPU. K_env=1 preserves the original 1 GPU : 1 robot assumption; K_env>1 reduces rollout GPU count but increases local batching/fan-in pressure."><label for="robotsPerGpu">Robots per rollout GPU K_env</label></div>
+            <input id="robotsPerGpu" type="number" min="1" step="1" value="1">
           </div>
           <div class="field">
             <div class="label-line" data-tip="Primitive robot control rate in Hz. It scales environment steps/s, horizon production rate, and RTC lookahead."><label for="frequency">Control frequency f</label></div>
@@ -581,7 +585,7 @@
         <summary>Rollout Cluster</summary>
         <div class="group-body">
           <div class="field">
-            <div class="label-line" data-tip="Physical GPU count per rollout node. With 1 GPU:1 robot, rollout nodes are ceil(N/G)."><label for="rolloutGpusPerNode">Rollout GPUs per physical node G</label></div>
+            <div class="label-line" data-tip="Maximum physical rollout GPU slots per node. Active allgather ranks use the actual GPUs present on each node, including partial tail nodes."><label for="rolloutGpusPerNode">Rollout GPUs per physical node G_max</label></div>
             <input id="rolloutGpusPerNode" type="number" min="1" step="1" value="8">
           </div>
           <div class="field">
@@ -616,9 +620,14 @@
             <span class="hint">Total aggregate effective bandwidth per direction; assumes symmetric full-duplex capacity.</span>
           </div>
           <div class="field">
-            <div class="label-line" data-tip="Direct sends full weights to every rollout GPU. Per-node scatter sends one model copy per physical node, then allgathers locally."><label for="weightPath">Selected weight path for summary</label></div>
+            <div class="label-line" data-tip="Effective aggregate rollout-cluster bandwidth for the optimal sharded-scatter path after the train cluster sends one model copy total."><label for="rolloutInternalBw">Rollout internal collective bandwidth (Gbps)</label></div>
+            <input id="rolloutInternalBw" type="number" min="1" step="1" value="800">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Direct sends full weights to every rollout GPU. Per-node scatter sends one model copy per physical node. Optimal sends one cross-cluster model copy total, then uses rollout-internal collective distribution."><label for="weightPath">Selected weight path for summary</label></div>
             <select id="weightPath">
-              <option value="node" selected>per-node scatter + allgather</option>
+              <option value="optimal" selected>optimal sharded scatter + rollout collective</option>
+              <option value="node">per-node scatter + allgather</option>
               <option value="direct">direct per-GPU fanout</option>
             </select>
           </div>
@@ -788,8 +797,9 @@
               <tr>
                 <th>Path</th>
                 <th>Cross-cluster bytes/version</th>
-                <th>Bytes/GPU over cross-cluster</th>
+                <th>Cross payload per receiver</th>
                 <th>Cross-cluster time</th>
+                <th>Rollout internal time</th>
                 <th>Local allgather recv/GPU</th>
                 <th>Local send+recv/GPU</th>
                 <th>Local time</th>
@@ -812,7 +822,9 @@
                 <th>Deadline</th>
                 <th>Local time</th>
                 <th>Required B_cross</th>
+                <th>Required B_rollout_internal</th>
                 <th>Available B_cross</th>
+                <th>Available B_rollout_internal</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -839,7 +851,9 @@
 
       <section class="card">
         <h2>Formulas</h2>
-        <pre class="formula">M_rollout = ceil(N / G_rollout)
+        <pre class="formula">N_rollout_gpu = ceil(N_robot / K_env)
+M_rollout = ceil(N_rollout_gpu / G_max)
+r_i = active rollout GPU ranks on node i
 M_train = ceil(T_gpu / G_train_node)
 
 step_interval = 1 / f
@@ -852,35 +866,47 @@ T_obs_pipeline_p99 = capture + preprocess + transport_lb + pack/unpack + ser/des
 T_action_pipeline_p99 = transport_lb + pack/unpack + ser/deser + robot_enqueue
 T_transport_lb = payload_bits / bandwidth + fixed_link_latency
 H2D/D2H/PCIe terms can be lower-bounded by bytes / effective_bandwidth.
-Pack/unpack and ser/deser remain measured overhead buckets in v1.
+For K_env > 1, obs/infer/action p99 buckets must be measured under the chosen batching and fan-in/fan-out policy.
 
-horizons_per_sec = N * f / H
+horizons_per_sec = N_robot * f / H
 step_entries_per_sec = horizons_per_sec * H
 chunk_entries_per_sec = horizons_per_sec * ceil(H / C)
 
-step_replay_MBps = N * f * S_step
+step_replay_MBps = N_robot * f * S_step
 chunk_replay_MBps = horizons_per_sec * ceil(H / C) * S_chunk
+represented_primitive_steps_per_sec = N_robot * f
 represented_steps_per_MB = represented_primitive_steps_per_sec / replay_MBps
+per_full_rollout_gpu_steps_per_sec = K_env * f
 
-direct_weight_bytes = N * W
-node_scatter_bytes = ceil(N / G_rollout) * W
+direct_weight_bytes = N_rollout_gpu * W
+node_scatter_bytes = M_rollout * W
 B_cross = total aggregate effective bandwidth per direction
-local_allgather_recv_per_gpu = (G_rollout - 1) / G_rollout * W
-local_allgather_send_recv_per_gpu = 2 * local_allgather_recv_per_gpu
-T_local_allgather = local_allgather_send_recv_per_gpu / B_local_allgather_bidirectional_GBps
+local_allgather_recv_per_gpu_i = (r_i - 1) / r_i * W
+local_allgather_send_recv_per_gpu_i = 2 * local_allgather_recv_per_gpu_i
+local_allgather_critical = max_i(local_allgather_send_recv_per_gpu_i / B_local_allgather_bidirectional_GBps)
+optimal_cross_bytes = W
+optimal_rollout_internal_bytes = (M_rollout - 1) * W
+B_rollout_collective = total effective aggregate rollout-internal collective bandwidth
+T_local_allgather = local_allgather_critical
 T_sync_direct = direct_weight_bytes * 8 / B_cross
 T_sync_node_cross = node_scatter_bytes * 8 / B_cross
-T_sync_node_no_pipeline = T_sync_node_cross + T_local_allgather
-T_sync_node_pipeline_lb = max(T_sync_node_cross, T_local_allgather)
+T_sync_node_no_pipeline = T_sync_node_cross + local_allgather_critical
+T_sync_node_pipeline_lb = max(T_sync_node_cross, local_allgather_critical)
+T_sync_optimal_cross = W * 8 / B_cross
+T_sync_optimal_rollout = optimal_rollout_internal_bytes * 8 / B_rollout_collective
+T_sync_optimal_no_pipeline = T_sync_optimal_cross + T_sync_optimal_rollout + local_allgather_critical
+T_sync_optimal_pipeline_lb = max(T_sync_optimal_cross, T_sync_optimal_rollout, local_allgather_critical)
 
 T_update = K * H / f
 deadline = L * T_update
 required_B_cross_direct = direct_weight_bytes * 8 / deadline
-required_B_cross_node_no_pipeline = node_scatter_bytes * 8 / (deadline - T_local_allgather)
-node path is infeasible when deadline <= T_local_allgather
+required_B_cross_node_lb = node_scatter_bytes * 8 / deadline
+required_B_cross_optimal_lb = W * 8 / deadline
+required_B_rollout_collective_optimal_lb = optimal_rollout_internal_bytes * 8 / deadline
 T_sync_lb_direct = T_sync_direct
-T_sync_lb_node = max(T_sync_node_cross, T_local_allgather)
-T_sync_lb_selected = T_sync_lb_direct or T_sync_lb_node for selected path
+T_sync_lb_node = max(T_sync_node_cross, local_allgather_critical)
+T_sync_lb_optimal = max(T_sync_optimal_cross, T_sync_optimal_rollout, local_allgather_critical)
+T_sync_lb_selected = direct, node, or optimal lower bound for selected path
 min_L_for_sync_lb = max(1, ceil(T_sync_lb_selected / T_update))
 replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       </section>
@@ -975,6 +1001,11 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       return `${fmt(value)} GB`;
     }
 
+    function fmtGBRange(minValue, maxValue) {
+      if (Math.abs(minValue - maxValue) < 1e-9) return fmtGB(minValue);
+      return `${fmtGB(minValue)} - ${fmtGB(maxValue)}`;
+    }
+
     function fmtMBps(value) {
       if (value >= 1000) return `${fmt(value / 1000)} GB/s`;
       return `${fmt(value)} MB/s`;
@@ -1003,10 +1034,37 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       return `<span class="status ${cls}">${label}</span>`;
     }
 
+    function weightPathLabel(path) {
+      if (path === "direct") return "direct";
+      if (path === "node") return "node scatter + allgather";
+      return "optimal sharded scatter + rollout collective";
+    }
+
+    function capacityClass(required, capacity) {
+      if (!Number.isFinite(required) || required > capacity) return "bad";
+      if (required <= capacity * 0.75) return "good";
+      return "warn";
+    }
+
+    function timingClass(required, budget) {
+      if (!Number.isFinite(required) || required > budget) return "bad";
+      if (required <= budget * 0.75) return "good";
+      return "warn";
+    }
+
+    function classLabel(cls) {
+      return cls === "good" ? "OK" : cls === "warn" ? "Tight" : "Over";
+    }
+
+    function worstClass(classes) {
+      if (classes.includes("bad")) return "bad";
+      if (classes.includes("warn")) return "warn";
+      return "good";
+    }
+
     function capacityStatus(required, capacity) {
-      if (required <= capacity * 0.75) return statusPill("OK", "good");
-      if (required <= capacity) return statusPill("Tight", "warn");
-      return statusPill("Over", "bad");
+      const cls = capacityClass(required, capacity);
+      return statusPill(classLabel(cls), cls);
     }
 
     function requiredCrossGbps(bytesGB, deadlineSec, localSec = 0) {
@@ -1016,9 +1074,15 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
     }
 
     function timingStatus(required, budget) {
-      if (required <= budget * 0.75) return statusPill("OK", "good");
-      if (required <= budget) return statusPill("Tight", "warn");
-      return statusPill("Over", "bad");
+      const cls = timingClass(required, budget);
+      return statusPill(classLabel(cls), cls);
+    }
+
+    function pathStatus(crossRequired, crossCapacity, rolloutRequired, rolloutCapacity, localSec, deadlineSec) {
+      const checks = [capacityClass(crossRequired, crossCapacity), timingClass(localSec, deadlineSec)];
+      if (rolloutRequired > 0) checks.push(capacityClass(rolloutRequired, rolloutCapacity));
+      const cls = worstClass(checks);
+      return statusPill(classLabel(cls), cls);
     }
 
     function derivedStepPayloadMB() {
@@ -1051,6 +1115,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         replayUnit: selectValue("replayUnit"),
         L: numberValue("lagL", 1),
         K: updateKHorizons,
+        KEnv: Math.max(numberValue("robotsPerGpu", 1), 1),
         G: Math.max(numberValue("rolloutGpusPerNode", 8), 1),
         BLocal: Math.max(numberValue("localAllgatherBw", 64), 0.001),
         obsP99: numberValue("obsP99", 0.01),
@@ -1058,6 +1123,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         actionP99: numberValue("actionP99", 0.01),
         jitterP99: numberValue("jitterP99", 0.05),
         BCross: Math.max(numberValue("crossBw", 400), 0.001),
+        BRollout: Math.max(numberValue("rolloutInternalBw", 800), 0.001),
         weightPath: selectValue("weightPath"),
         Tgpu: Math.max(numberValue("trainGpus", 32), 1),
         Gtrain: Math.max(numberValue("trainGpusPerNode", 8), 1),
@@ -1071,8 +1137,17 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
     }
 
     function compute(input) {
-      const Mrollout = Math.ceil(input.N / input.G);
+      const rolloutGpuCount = Math.ceil(input.N / input.KEnv);
+      const Mrollout = Math.ceil(rolloutGpuCount / input.G);
       const Mtrain = Math.ceil(input.Tgpu / input.Gtrain);
+      const rankCounts = [];
+      for (let i = 0; i < Mrollout; i += 1) {
+        rankCounts.push(Math.min(input.G, rolloutGpuCount - i * input.G));
+      }
+      const maxNodeRanks = Math.max(...rankCounts, 1);
+      const minNodeRanks = Math.min(...rankCounts, maxNodeRanks);
+      const fullGpuRobots = Math.min(input.KEnv, input.N);
+      const tailGpuRobots = input.N % input.KEnv || fullGpuRobots;
       const stepInterval = 1 / input.f;
       const chunkCoverage = input.C / input.f;
       const rtcStrideSteps = input.C / 2;
@@ -1090,9 +1165,14 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       const activeEntriesPerSec = input.replayUnit === "step" ? stepEntriesPerSec : chunkEntriesPerSec;
       const stepRepresentedPerMB = stepReplayMBps > 0 ? representedSteps / stepReplayMBps : 0;
       const chunkRepresentedPerMB = chunkReplayMBps > 0 ? representedSteps / chunkReplayMBps : 0;
-      const directBytesGB = input.N * input.W;
+      const avgActiveReplayMBpsPerGpu = activeReplayMBps / rolloutGpuCount;
+      const fullGpuReplayStepsPerSec = fullGpuRobots * input.f;
+      const tailGpuReplayStepsPerSec = tailGpuRobots * input.f;
+      const directBytesGB = rolloutGpuCount * input.W;
       const nodeScatterBytesGB = Mrollout * input.W;
-      const localRecvPerGpuGB = input.G <= 1 ? 0 : (input.G - 1) / input.G * input.W;
+      const nodeShardMinGB = input.W / maxNodeRanks;
+      const nodeShardMaxGB = input.W / minNodeRanks;
+      const localRecvPerGpuGB = maxNodeRanks <= 1 ? 0 : (maxNodeRanks - 1) / maxNodeRanks * input.W;
       const localSendRecvPerGpuGB = 2 * localRecvPerGpuGB;
       const localAllgatherSec = localSendRecvPerGpuGB / input.BLocal;
       const directCrossSec = directBytesGB * 8 / input.BCross;
@@ -1101,11 +1181,18 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       const directPipelinedSec = directCrossSec;
       const nodeNoPipelineSec = nodeCrossSec + localAllgatherSec;
       const nodePipelinedSec = Math.max(nodeCrossSec, localAllgatherSec);
-      const selectedFanoutGB = input.weightPath === "direct" ? directBytesGB : nodeScatterBytesGB;
-      const weightSyncLowerBoundSec = input.weightPath === "direct" ? directPipelinedSec : nodePipelinedSec;
+      const optimalCrossBytesGB = input.W;
+      const optimalRolloutBytesGB = Math.max(Mrollout - 1, 0) * input.W;
+      const optimalCrossSec = optimalCrossBytesGB * 8 / input.BCross;
+      const optimalRolloutSec = optimalRolloutBytesGB * 8 / input.BRollout;
+      const optimalNoPipelineSec = optimalCrossSec + optimalRolloutSec + localAllgatherSec;
+      const optimalPipelinedSec = Math.max(optimalCrossSec, optimalRolloutSec, localAllgatherSec);
+      const selectedCrossBytesGB = input.weightPath === "direct" ? directBytesGB : input.weightPath === "node" ? nodeScatterBytesGB : optimalCrossBytesGB;
+      const selectedRolloutBytesGB = input.weightPath === "optimal" ? optimalRolloutBytesGB : 0;
+      const weightSyncLowerBoundSec = input.weightPath === "direct" ? directPipelinedSec : input.weightPath === "node" ? nodePipelinedSec : optimalPipelinedSec;
       const policyDeadline = input.L * input.updatePeriod;
-      const selectedLocalSec = input.weightPath === "direct" ? 0 : localAllgatherSec;
-      const weightRequiredGbps = requiredCrossGbps(selectedFanoutGB, policyDeadline, selectedLocalSec);
+      const weightRequiredGbps = requiredCrossGbps(selectedCrossBytesGB, policyDeadline);
+      const rolloutRequiredGbps = selectedRolloutBytesGB > 0 ? selectedRolloutBytesGB * 8 / policyDeadline : 0;
       const replayGbps = activeReplayMBps * 8 / 1000;
       const minL = Math.max(1, Math.ceil(weightSyncLowerBoundSec / input.updatePeriod));
       const weightSyncOnlySec = weightSyncLowerBoundSec;
@@ -1113,8 +1200,14 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       const stepsPerUpdate = input.N * input.K * input.H;
 
       return {
+        rolloutGpuCount,
         Mrollout,
         Mtrain,
+        rankCounts,
+        maxNodeRanks,
+        minNodeRanks,
+        fullGpuRobots,
+        tailGpuRobots,
         stepInterval,
         chunkCoverage,
         rtcStrideSteps,
@@ -1132,9 +1225,17 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         activeEntriesPerSec,
         stepRepresentedPerMB,
         chunkRepresentedPerMB,
+        avgActiveReplayMBpsPerGpu,
+        fullGpuReplayStepsPerSec,
+        tailGpuReplayStepsPerSec,
         directBytesGB,
         nodeScatterBytesGB,
-        selectedFanoutGB,
+        nodeShardMinGB,
+        nodeShardMaxGB,
+        optimalCrossBytesGB,
+        optimalRolloutBytesGB,
+        selectedCrossBytesGB,
+        selectedRolloutBytesGB,
         localRecvPerGpuGB,
         localSendRecvPerGpuGB,
         localAllgatherSec,
@@ -1144,7 +1245,12 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         directPipelinedSec,
         nodeNoPipelineSec,
         nodePipelinedSec,
+        optimalCrossSec,
+        optimalRolloutSec,
+        optimalNoPipelineSec,
+        optimalPipelinedSec,
         weightRequiredGbps,
+        rolloutRequiredGbps,
         replayGbps,
         minL,
         weightSyncLowerBoundSec,
@@ -1192,20 +1298,20 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         archNode("Robots", `${fmtInt(input.N)} robots`, [
           `${fmt(input.f)} Hz control frequency`,
           `C=${fmtInt(input.C)} action chunk`,
-          "1 robot per rollout GPU"
+          `${fmtInt(input.KEnv)} robot(s) per rollout GPU`
         ]),
         archLink("Local robot-control links", [
           "co-located rollout node",
-          "1 GPU : 1 robot"
+          "fan-in/fan-out p99 included in RTC buckets"
         ]),
         archNode("Rollout / Inference Cluster", `${fmtInt(data.Mrollout)} nodes`, [
           `${fmtInt(input.G)} rollout GPUs/node`,
-          `${fmtInt(input.N)} rollout GPUs total`,
+          `${fmtInt(data.rolloutGpuCount)} rollout GPUs total`,
           `${fmtGBps(input.BLocal)} intra-node allgather`
         ]),
         archLink("Cross-cluster fabric", [
           `${fmtGbps(input.BCross)} per direction`,
-          "symmetric full-duplex"
+          `${fmtGbps(input.BRollout)} rollout internal collective`
         ]),
         archNode("Train Cluster", `${fmtInt(data.Mtrain)} nodes`, [
           `${fmtInt(input.Gtrain)} train GPUs/node`,
@@ -1217,31 +1323,39 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
 
     function renderSummary(input, data) {
       const rtcStatus = data.rtcCriticalPath <= data.rtcLookahead ? "good" : "bad";
-      const weightRatio = data.weightRequiredGbps / input.BCross;
-      const weightStatus = weightRatio <= 0.75 ? "good" : (weightRatio <= 1 ? "warn" : "bad");
       const activeMode = input.replayUnit === "step" ? "step replay" : "chunk replay";
+      const rolloutCollectiveText = input.weightPath === "optimal" ? fmtGbps(data.rolloutRequiredGbps) : "N/A";
+      const rolloutCollectiveSub = input.weightPath === "optimal"
+        ? `${capacityStatus(data.rolloutRequiredGbps, input.BRollout)} capacity ${fmtGbps(input.BRollout)}`
+        : "selected path does not use rollout-internal collective";
 
       $("summaryGrid").innerHTML = [
-        metric("Rollout cluster", `${fmtInt(data.Mrollout)} nodes`, `${fmtInt(input.N)} GPUs for ${fmtInt(input.N)} robots`),
+        metric("Rollout cluster", `${fmtInt(data.Mrollout)} nodes`, `${fmtInt(data.rolloutGpuCount)} GPUs for ${fmtInt(input.N)} robots; K_env=${fmtInt(input.KEnv)}`),
         metric("Train cluster", `${fmtInt(data.Mtrain)} nodes`, `${fmtInt(input.Tgpu)} train GPUs`),
-        metric("Replay Buffer", fmtMBps(data.activeReplayMBps), `${activeMode}, ${fmtInt(data.activeEntriesPerSec)} entries/s`),
+        metric("Replay Buffer", fmtMBps(data.activeReplayMBps), `aggregate ${activeMode}, ${fmtInt(data.activeEntriesPerSec)} entries/s`),
+        metric("Replay / rollout GPU", fmtMBps(data.avgActiveReplayMBpsPerGpu), `${fmtInt(data.fullGpuReplayStepsPerSec)} primitive steps/s on a full rollout GPU`),
         metric("FIFO", `${fmt(data.horizonsPerSec)} horizons/s`, `${fmtInt(data.representedSteps)} primitive steps/s`),
-        metric("Weight downlink", fmtRequiredGbps(data.weightRequiredGbps), `${statusPill(weightStatus === "good" ? "OK" : weightStatus === "warn" ? "Tight" : "Over", weightStatus)} capacity ${fmtGbps(input.BCross)}`),
+        metric("Weight cross downlink", fmtRequiredGbps(data.weightRequiredGbps), `${capacityStatus(data.weightRequiredGbps, input.BCross)} cross capacity ${fmtGbps(input.BCross)}`),
+        metric("Rollout collective", rolloutCollectiveText, rolloutCollectiveSub),
         metric("Weight sync lower bound", fmtSeconds(data.weightSyncOnlySec), `selected L-version deadline ${fmtSeconds(data.policyDeadline)} (L=${fmt(input.L)}); excludes T_train/T_export/T_apply`),
-        metric("Min L for sync lower bound", data.minL <= 8 ? `L=${data.minL}` : `L>${fmtInt(8)}`, `selected path: ${input.weightPath === "direct" ? "direct" : "node scatter + allgather"}`),
+        metric("Min L for sync lower bound", data.minL <= 8 ? `L=${data.minL}` : `L>${fmtInt(8)}`, `selected path: ${weightPathLabel(input.weightPath)}`),
         metric("RTC lookahead", fmtSeconds(data.rtcLookahead), `${statusPill(rtcStatus === "good" ? "OK" : "Over", rtcStatus)} RTC next-chunk critical path ${fmtSeconds(data.rtcCriticalPath)}`)
       ].join("");
     }
 
     function renderCluster(input, data) {
       setRows("clusterTable", [
-        row(["Robots", fmtInt(input.N), "input N"]),
+        row(["Robots", fmtInt(input.N), "input N_robot"]),
+        row(["Robots per rollout GPU", fmtInt(input.KEnv), "input K_env"]),
         row(["Control frequency", `${fmt(input.f)} Hz`, "input f"]),
         row(["Model weight payload", fmtGB(input.W), "Pi0.5-3B BF16 default publish payload"]),
-        row(["Rollout GPUs", fmtInt(input.N), "1 GPU : 1 robot"]),
-        row(["Rollout GPUs/node", fmtInt(input.G), "default 8"]),
+        row(["Rollout GPUs", fmtInt(data.rolloutGpuCount), "ceil(N_robot / K_env)"]),
+        row(["Rollout GPUs/node", fmtInt(input.G), "G_max, default 8"]),
+        row(["Active rollout ranks/node", `${fmtInt(data.maxNodeRanks)} max; ${fmtInt(data.minNodeRanks)} min`, "partial tail nodes use actual active ranks"]),
         row(["Intra-node allgather bandwidth", fmtGBps(input.BLocal), "per-GPU bidirectional, PCIe 4.0 x16 theoretical default"]),
-        row(["Rollout nodes", fmtInt(data.Mrollout), "ceil(N / G_rollout)"]),
+        row(["Rollout internal collective bandwidth", fmtGbps(input.BRollout), "effective aggregate rollout-cluster collective bandwidth"]),
+        row(["Rollout nodes", fmtInt(data.Mrollout), "ceil(N_rollout_gpu / G_max)"]),
+        row(["Replay pressure / full rollout GPU", `${fmtInt(data.fullGpuReplayStepsPerSec)} primitive steps/s`, `K_env * f; tail GPU ${fmtInt(data.tailGpuReplayStepsPerSec)} primitive steps/s`]),
         row(["Train GPUs", fmtInt(input.Tgpu), "input T_gpu"]),
         row(["Train GPUs/node", fmtInt(input.Gtrain), "default 8"]),
         row(["Train nodes", fmtInt(data.Mtrain), "ceil(T_gpu / G_train_node)"]),
@@ -1292,12 +1406,14 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
     function renderFanout(input, data) {
       const directLocal = 0;
       const nodeReduction = data.directBytesGB / data.nodeScatterBytesGB;
+      const optimalReduction = data.directBytesGB / data.optimalCrossBytesGB;
       setRows("fanoutTable", [
         row([
           "Direct per-GPU",
           fmtGB(data.directBytesGB),
-          fmtGB(input.W),
+          `${fmtGB(input.W)} / rollout GPU`,
           fmtSeconds(data.directCrossSec),
+          "N/A",
           fmtGB(directLocal),
           fmtGB(directLocal),
           "0 s",
@@ -1308,15 +1424,29 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         row([
           "Per-node scatter + allgather",
           fmtGB(data.nodeScatterBytesGB),
-          fmtGB(input.W / input.G),
+          `${fmtGBRange(data.nodeShardMinGB, data.nodeShardMaxGB)} / active GPU`,
           fmtSeconds(data.nodeCrossSec),
+          "N/A",
           fmtGB(data.localRecvPerGpuGB),
           fmtGB(data.localSendRecvPerGpuGB),
           fmtSeconds(data.localAllgatherSec),
           fmtSeconds(data.nodeNoPipelineSec),
           fmtSeconds(data.nodePipelinedSec),
           `${fmt(nodeReduction, 1)}x`
-        ], input.weightPath === "node" ? "active-row" : "")
+        ], input.weightPath === "node" ? "active-row" : ""),
+        row([
+          "Optimal sharded scatter + rollout collective",
+          fmtGB(data.optimalCrossBytesGB),
+          `${fmtGB(data.optimalCrossBytesGB / data.Mrollout)} / rollout node`,
+          fmtSeconds(data.optimalCrossSec),
+          fmtSeconds(data.optimalRolloutSec),
+          fmtGB(data.localRecvPerGpuGB),
+          fmtGB(data.localSendRecvPerGpuGB),
+          fmtSeconds(data.localAllgatherSec),
+          fmtSeconds(data.optimalNoPipelineSec),
+          fmtSeconds(data.optimalPipelinedSec),
+          `${fmt(optimalReduction, 1)}x`
+        ], input.weightPath === "optimal" ? "active-row" : "")
       ]);
     }
 
@@ -1331,29 +1461,51 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
           fmtSeconds(deadline),
           "N/A",
           fmtRequiredGbps(directCross),
+          "N/A",
           fmtGbps(input.BCross),
-          capacityStatus(directCross, input.BCross)
+          "N/A",
+          pathStatus(directCross, input.BCross, 0, input.BRollout, 0, deadline)
         ], input.weightPath === "direct" && lag === input.L ? "active-row" : ""));
 
-        const nodeCross = requiredCrossGbps(data.nodeScatterBytesGB, deadline, data.localAllgatherSec);
+        const nodeCross = data.nodeScatterBytesGB * 8 / deadline;
         rows.push(row([
           "Per-node scatter + allgather",
           `L=${lag}`,
           fmtSeconds(deadline),
           fmtSeconds(data.localAllgatherSec),
           fmtRequiredGbps(nodeCross),
+          "N/A",
           fmtGbps(input.BCross),
-          capacityStatus(nodeCross, input.BCross)
+          "N/A",
+          pathStatus(nodeCross, input.BCross, 0, input.BRollout, data.localAllgatherSec, deadline)
         ], input.weightPath === "node" && lag === input.L ? "active-row" : ""));
+
+        const optimalCross = data.optimalCrossBytesGB * 8 / deadline;
+        const optimalRollout = data.optimalRolloutBytesGB * 8 / deadline;
+        rows.push(row([
+          "Optimal sharded scatter + rollout collective",
+          `L=${lag}`,
+          fmtSeconds(deadline),
+          fmtSeconds(data.localAllgatherSec),
+          fmtRequiredGbps(optimalCross),
+          fmtRequiredGbps(optimalRollout),
+          fmtGbps(input.BCross),
+          fmtGbps(input.BRollout),
+          pathStatus(optimalCross, input.BCross, optimalRollout, input.BRollout, data.localAllgatherSec, deadline)
+        ], input.weightPath === "optimal" && lag === input.L ? "active-row" : ""));
       });
       setRows("lagTable", rows);
     }
 
     function renderNetwork(input, data) {
       const capacity = input.BCross;
+      const rolloutRequired = input.weightPath === "optimal" ? fmtGbps(data.rolloutRequiredGbps) : "N/A";
+      const rolloutAvailable = input.weightPath === "optimal" ? fmtGbps(input.BRollout) : "N/A";
+      const rolloutStatus = input.weightPath === "optimal" ? capacityStatus(data.rolloutRequiredGbps, input.BRollout) : "not used";
       setRows("networkTable", [
         row(["Replay Buffer (FIFO)", "rollout -> train", fmtGbps(data.replayGbps), fmtGbps(capacity), capacityStatus(data.replayGbps, capacity)]),
-        row(["Weight Sync", "train -> rollout", fmtRequiredGbps(data.weightRequiredGbps), fmtGbps(capacity), capacityStatus(data.weightRequiredGbps, capacity)]),
+        row(["Weight Sync cross", "train -> rollout", fmtRequiredGbps(data.weightRequiredGbps), fmtGbps(capacity), capacityStatus(data.weightRequiredGbps, capacity)]),
+        row(["Weight Sync rollout collective", "rollout internal", rolloutRequired, rolloutAvailable, rolloutStatus]),
         row(["Full-duplex assumption", "opposite directions", "not summed", fmtGbps(capacity), "endpoint/topology caveats separate"])
       ]);
     }
