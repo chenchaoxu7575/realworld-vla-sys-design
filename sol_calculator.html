@@ -1744,6 +1744,25 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       weightChartRange = { bMin: min, bMax: max };
     }
 
+    function floorToPower10(value) {
+      return Math.pow(10, Math.floor(Math.log10(Math.max(value, 1e-9))));
+    }
+
+    function ceilToPower10(value) {
+      return Math.pow(10, Math.ceil(Math.log10(Math.max(value, 1e-9))));
+    }
+
+    function logTicks(minValue, maxValue) {
+      const ticks = [];
+      const minExp = Math.ceil(Math.log10(minValue));
+      const maxExp = Math.floor(Math.log10(maxValue));
+      for (let exp = minExp; exp <= maxExp; exp += 1) {
+        ticks.push(Math.pow(10, exp));
+      }
+      if (!ticks.length) ticks.push(Math.sqrt(minValue * maxValue));
+      return ticks;
+    }
+
     function renderWeightSyncChart(input, data) {
       const paths = weightPathSpecs(data);
       const selectedDeadline = input.L * input.updatePeriod;
@@ -1764,7 +1783,11 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
           sampledTimes.push(pathSumSec(path, b), pathPipelinedSec(path, b));
         }
       });
-      const yMax = Math.max(...sampledTimes, ...LAGS.map((lag) => lag * input.updatePeriod), selectedDeadline) * 1.12;
+      const positiveTimes = sampledTimes
+        .concat(LAGS.map((lag) => lag * input.updatePeriod), selectedDeadline)
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const yMin = floorToPower10(Math.min(...positiveTimes) / 1.15);
+      const yMax = ceilToPower10(Math.max(...positiveTimes) * 1.15);
       const width = 900;
       const height = 260;
       const pad = { left: 58, right: 18, top: 14, bottom: 40 };
@@ -1772,15 +1795,17 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       const plotH = height - pad.top - pad.bottom;
       const logMin = Math.log10(bMin);
       const logMax = Math.log10(bMax);
+      const logYMin = Math.log10(yMin);
+      const logYMax = Math.log10(yMax);
       const x = (b) => pad.left + (Math.log10(b) - logMin) / (logMax - logMin) * plotW;
-      const y = (sec) => pad.top + (1 - Math.min(sec, yMax) / yMax) * plotH;
+      const y = (sec) => pad.top + (1 - (Math.log10(clamp(sec, yMin, yMax)) - logYMin) / (logYMax - logYMin)) * plotH;
       const lineFor = (path) => Array.from({ length: sampleCount }, (_, index) => {
         const t = index / (sampleCount - 1);
         const b = bMin * Math.pow(bMax / bMin, t);
         return `${x(b).toFixed(1)},${y(pathSumSec(path, b)).toFixed(1)}`;
       }).join(" ");
       const xTicks = [bMin, Math.sqrt(bMin * bMax), bMax];
-      const yTicks = [0, yMax / 2, yMax];
+      const yTicks = logTicks(yMin, yMax);
       const deadlineLines = LAGS.map((lag) => {
         const yy = y(lag * input.updatePeriod);
         return `<line x1="${pad.left}" y1="${yy}" x2="${width - pad.right}" y2="${yy}" stroke="#d0d7e2" stroke-dasharray="4 5"/><text x="${width - pad.right - 4}" y="${yy - 4}" text-anchor="end" fill="#657085" font-size="11">L=${lag}</text>`;
@@ -1807,7 +1832,7 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
         `<line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" stroke="#9aa4b2"/>`,
         `<line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" stroke="#9aa4b2"/>`,
         `<text x="${width / 2}" y="${height - 4}" text-anchor="middle" fill="#344054" font-size="12">B_cross bandwidth (Gbps, log scale)</text>`,
-        `<text transform="translate(14 ${height / 2}) rotate(-90)" text-anchor="middle" fill="#344054" font-size="12">SoL ref time (sum)</text>`,
+        `<text transform="translate(14 ${height / 2}) rotate(-90)" text-anchor="middle" fill="#344054" font-size="12">SoL ref time (sum, log10)</text>`,
         `</svg>`,
         `<div class="chart-hover" id="weightSyncHover">Hover over plot for values.</div>`,
         `<div class="chart-legend">${legend}</div>`
