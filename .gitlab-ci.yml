@@ -3,6 +3,11 @@ stages:
 
 pages:
   stage: deploy
+  image: alpine:3.20
+  tags:
+    - os/linux
+    - cpu/x86_64
+    - type/docker
   script:
     - mkdir -p public
     - cp sol_calculator.html public/index.html
