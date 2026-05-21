@@ -1,0 +1,3 @@
+[submodule "benchmark_metric_sample"]
+	path = benchmark_metric_sample
+	url = https://gitlab-master.nvidia.com/chenchaox/benchmark_metric_sample.git
