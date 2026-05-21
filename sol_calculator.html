@@ -257,6 +257,26 @@
       font-size: 12px;
     }
 
+    .metric.state-warn {
+      border-color: #f2c94c;
+      background: #fff9e7;
+    }
+
+    .metric.state-warn .value {
+      color: var(--warn);
+    }
+
+    .metric.state-bad {
+      border-color: #f4a6a6;
+      background: #fff1f1;
+      box-shadow: inset 4px 0 0 var(--bad);
+    }
+
+    .metric.state-bad .label,
+    .metric.state-bad .value {
+      color: var(--bad);
+    }
+
     .architecture {
       display: grid;
       grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.72fr) minmax(230px, 1.25fr) minmax(130px, 0.8fr) minmax(220px, 1.1fr);
@@ -1452,8 +1472,9 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
       return `<tr class="${cls}">${cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`;
     }
 
-    function metric(label, value, sub = "") {
-      return `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+    function metric(label, value, sub = "", state = "") {
+      const cls = state ? `metric state-${state}` : "metric";
+      return `<div class="${cls}"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
     }
 
     function archNode(title, main, items) {
@@ -1505,24 +1526,28 @@ replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
     }
 
     function renderSummary(input, data) {
-      const rtcStatus = data.rtcCriticalPath <= data.rtcLookahead ? "good" : "bad";
+      const rtcStatus = timingClass(data.rtcCriticalPath, data.rtcLookahead);
+      const replayStatus = capacityClass(data.replayGbps, input.BCross);
+      const weightCrossStatus = capacityClass(data.weightRequiredGbps, input.BCross);
+      const rolloutInterStatus = input.weightPath === "optimal" ? timingClass(data.selectedRolloutInterSec, data.policyDeadline) : "";
+      const weightSyncStatus = timingClass(data.weightSyncOnlySec, data.policyDeadline);
       const activeMode = input.replayUnit === "step" ? "step replay" : "chunk replay";
       const rolloutCollectiveText = input.weightPath === "optimal" ? fmtSeconds(data.selectedRolloutInterSec) : "N/A";
       const rolloutCollectiveSub = input.weightPath === "optimal"
-        ? `${fmtGB(data.selectedRolloutInterBytesGB)} send+recv/node over fixed ${fmtGbps(input.BRolloutInter)}/node B_rollout_inter`
+        ? `${timingStatus(data.selectedRolloutInterSec, data.policyDeadline)} ${fmtGB(data.selectedRolloutInterBytesGB)} send+recv/node over fixed ${fmtGbps(input.BRolloutInter)}/node B_rollout_inter`
         : "selected path does not use B_rollout_inter";
 
       $("summaryGrid").innerHTML = [
         metric("Rollout cluster", `${fmtInt(data.Mrollout)} nodes`, `${fmtInt(data.rolloutGpuCount)} GPUs for ${fmtInt(input.N)} robots; K_env=${fmtInt(input.KEnv)}`),
         metric("Train cluster", `${fmtInt(data.Mtrain)} nodes`, `${fmtInt(input.Tgpu)} train GPUs`),
-        metric("Replay Buffer", fmtMBps(data.activeReplayMBps), `aggregate ${activeMode}, ${fmtInt(data.activeEntriesPerSec)} entries/s`),
+        metric("Replay Buffer", fmtMBps(data.activeReplayMBps), `${capacityStatus(data.replayGbps, input.BCross)} replay uplink ${fmtGbps(data.replayGbps)} / ${fmtGbps(input.BCross)} B_cross; aggregate ${activeMode}, ${fmtInt(data.activeEntriesPerSec)} entries/s`, replayStatus),
         metric("Replay / full rollout GPU", fmtMBps(data.avgActiveReplayMBpsPerGpu), `${fmtInt(data.fullGpuReplayStepsPerSec)} primitive steps/s = K_env * f; tail GPU ${fmtInt(data.tailGpuReplayStepsPerSec)}`),
         metric("Fleet FIFO", `${fmt(data.horizonsPerSec)} horizons/s`, `${fmtInt(data.representedSteps)} primitive steps/s = N_robot * f (${fmtInt(input.N)} * ${fmt(input.f)}Hz)`),
-        metric("Weight cross downlink", fmtRequiredGbps(data.weightRequiredGbps), `${capacityStatus(data.weightRequiredGbps, input.BCross)} cross capacity ${fmtGbps(input.BCross)}`),
-        metric("B_rollout_inter", rolloutCollectiveText, rolloutCollectiveSub),
-        metric("Weight sync SoL ref", fmtSeconds(data.weightSyncOnlySec), `sum reference; pipelined LB ${fmtSeconds(data.selectedPipelinedSec)}; deadline ${fmtSeconds(data.policyDeadline)} (L=${fmt(input.L)})`),
-        metric("Min L for SoL ref", data.minL <= 8 ? `L=${data.minL}` : `L>${fmtInt(8)}`, `selected path: ${weightPathLabel(input.weightPath)}; excludes T_train/T_export/T_apply`),
-        metric("RTC lookahead", fmtSeconds(data.rtcLookahead), `${statusPill(rtcStatus === "good" ? "OK" : "Over", rtcStatus)} RTC next-chunk critical path ${fmtSeconds(data.rtcCriticalPath)}`)
+        metric("Weight cross downlink", fmtRequiredGbps(data.weightRequiredGbps), `${capacityStatus(data.weightRequiredGbps, input.BCross)} cross capacity ${fmtGbps(input.BCross)}`, weightCrossStatus),
+        metric("B_rollout_inter", rolloutCollectiveText, rolloutCollectiveSub, rolloutInterStatus),
+        metric("Weight sync SoL ref", fmtSeconds(data.weightSyncOnlySec), `${timingStatus(data.weightSyncOnlySec, data.policyDeadline)} sum reference; pipelined LB ${fmtSeconds(data.selectedPipelinedSec)}; deadline ${fmtSeconds(data.policyDeadline)} (L=${fmt(input.L)})`, weightSyncStatus),
+        metric("Min L for SoL ref", data.minL <= 8 ? `L=${data.minL}` : `L>${fmtInt(8)}`, `selected path: ${weightPathLabel(input.weightPath)}; excludes T_train/T_export/T_apply`, data.minL > input.L ? "bad" : ""),
+        metric("RTC lookahead", fmtSeconds(data.rtcLookahead), `${statusPill(classLabel(rtcStatus), rtcStatus)} RTC next-chunk critical path ${fmtSeconds(data.rtcCriticalPath)}`, rtcStatus)
       ].join("");
     }
 
