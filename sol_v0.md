@@ -746,6 +746,84 @@ This path is intentionally a SOL lower bound:
 - The rollout collective must not interfere with RTC p99.
 - `T_export`, checksum/validation, and `T_apply` remain separate from this communication lower bound.
 
+#### Hardware Regimes for the Hierarchical Path
+
+The hierarchical path is parameterized by three independent bandwidths (`B_cross`, `B_rollout_inter`, `B_rollout_intra`). The same lower bound `T_sync_optimal_pipeline_lb = max(T_cross, T_rollout_inter, T_rollout_intra)` applies in two very different physical regimes; only the dominant level shifts. The path therefore covers both datacenter rollout clusters with RDMA + NVLink and real-robot rollout clusters with commodity ethernet and single-GPU edge boxes, without changing the formula.
+
+##### Regime A: datacenter rollout cluster (RDMA fabric + NVLink/NVSwitch)
+
+Typical baseline values to plug in:
+
+| Term | Typical value | Source |
+|---|---:|---|
+| `B_cross` | 200-800 Gbps per direction | one or a few cross-DC links, possibly shared |
+| `B_rollout_inter` | 800 Gbps - 6.4 Tbps aggregate | IB/RoCE non-blocking fat-tree, GPUDirect RDMA enabled |
+| `B_rollout_intra` | ~200-900 GB/s bidirectional per GPU | NVLink 4 / NVSwitch; PCIe 4.0 x16 ~64 GB/s if NVLink absent |
+
+For `N_rollout_gpu=100`, `W=8.5GB`, `G_max=8` (so `M=13`):
+
+```text
+T_cross          = W * 8 / B_cross                       = 8.5*8/400Gbps   = 0.17s
+T_rollout_inter  = 2*(M-1)*W * 8 / B_rollout_inter       = 204*8/1.6Tbps   = 1.02s   <- dominant
+T_rollout_intra  = 2*(G-1)/G*W / B_rollout_intra         = 14.88GB/200GB/s = 0.07s
+T_pipelined_lb   = max(...)                                                 = 1.02s
+```
+
+L2 (rollout inter-node) is dominant. L3 is nearly free because of NVLink. This is the regime Moonshot's `checkpoint-engine` was designed for: NCCL broadcast across rollout nodes over RDMA, CUDA IPC plus selective device-to-device copy inside each node.
+
+Implementation primitives that fit this regime:
+
+- L1 staging: train-rank FSDP shard RDMA-writes to `/dev/shm` or to the matching node's PS pinned CPU pool. Cross-cluster bytes total `W`.
+- L2 collective: NCCL broadcast group with round-robin bucket-to-src assignment, or NCCL allgather, over GPUDirect RDMA.
+- L3 fanout: CUDA IPC + selective D2D copy (one PS GPU buffer per node, G inference processes read their own TP shard), or NCCL allgather over NVLink. With IPC the per-GPU intra-node traffic is `W/G` (one-way selective read), not the allgather formula's `2*(G-1)/G*W`.
+
+##### Regime B: real-robot / edge rollout cluster (commodity ethernet, often `G_max=1`)
+
+Typical baseline for a 100-robot deployment with one GPU per robot, deployed across LAN or WAN:
+
+| Term | Typical value | Source |
+|---|---:|---|
+| `B_cross` | 1-25 Gbps to robot site | site WAN uplink, often asymmetric |
+| `B_rollout_inter` | 10-100 Gbps aggregate | switch-level LAN bisection, no IB, no RDMA |
+| `B_rollout_intra` | N/A | single-GPU nodes have no intra-node collective |
+
+For `N_rollout_gpu=100`, `W=8.5GB`, `G_max=1` (so `M=100`):
+
+```text
+T_cross          = W * 8 / B_cross                       = 8.5*8/25Gbps    = 2.72s
+T_rollout_inter  = 2*(M-1)*W * 8 / B_rollout_inter       = 1683*8/100Gbps  = 134.6s  <- infeasible
+T_rollout_intra  = 0                                                                  (G=1 degenerate)
+T_pipelined_lb   = max(...)                                                = 134.6s
+```
+
+The formula still holds, but the dominant level migrates entirely to L2 (rollout inter-node fabric). L3 collapses to 0 because there is no intra-node fan-out when each node has one GPU; the Regime A optimizations (CUDA IPC, NVLink allgather) have nothing to operate on.
+
+Implementation primitives that fit this regime:
+
+- L1 staging: TCP/HTTP push from train cluster to per-robot local NVMe; no RDMA.
+- L2 collective: gloo over TCP, or peer-to-peer propagation among rollout nodes; no GPUDirect.
+- L3: not applicable.
+
+##### Regime shift summary
+
+| Aspect | Regime A | Regime B |
+|---|---|---|
+| Dominant bottleneck | L2 (rollout inter-node, RDMA-grade) | L2 (commodity LAN), often ~100x slower |
+| `G_max` typical | 4-8 | 1 |
+| L3 optimization leverage | High (CUDA IPC, NVLink allgather) | None (term is zero) |
+| Reference implementation | Moonshot `checkpoint-engine` broadcast mode | No off-the-shelf SoL implementation; must be assembled |
+| Full-weight sync time for `W=8.5GB`, `L*T_update=10s` | seconds (fits one horizon) | minutes (infeasible without mitigation) |
+
+##### Mitigation levers when Regime B is the target
+
+If full-weight sync is infeasible at the available `B_rollout_inter`, three SoL levers remain. They are not implementation tricks; they change the inputs to the same formula.
+
+1. Reduce `W`. Adapter-only or LoRA sync can drop the publish payload by 50-100x. Delta or quantized weight publishing has similar effect.
+2. Relax the deadline. Increase `K` (publish every `K` horizons) or `L` (allowed policy-version lag). Both grow `T_update = K * H / f` and therefore the SoL budget `L * T_update` proportionally.
+3. Restructure the topology. Group robots into hubs (e.g., 100 robots = 10 hubs of 10 robots each, each hub with a staging node). The hierarchical path becomes 4-level: cross-cluster -> hubs -> robots -> GPU. Each added level shrinks the effective fan-out factor on the slowest link.
+
+The SoL formula extends naturally to a 4-level topology: an extra `T_hub` term joins the `max(...)` lower bound with its own bandwidth parameter `B_hub`, and the L2 send+recv volume drops from `2*(M-1)*W` to `2*(M_hub-1)*W` for the cross-hub collective plus `2*(R_per_hub-1)*W` for the per-hub collective.
+
 ## Clock Analysis
 
 There are three clocks that should not be confused:

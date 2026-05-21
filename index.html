@@ -1,0 +1,2075 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Real-World RL SOL Calculator</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #657085;
+      --line: #d9e0ea;
+      --soft: #eef3f8;
+      --accent: #2563eb;
+      --accent-ink: #ffffff;
+      --good: #0f8a52;
+      --good-bg: #e8f7ef;
+      --warn: #a46400;
+      --warn-bg: #fff4dc;
+      --bad: #b42318;
+      --bad-bg: #fdecea;
+      --code: #111827;
+      --shadow: 0 10px 30px rgba(18, 27, 45, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    header {
+      padding: 28px 32px 18px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      max-width: 960px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+      gap: 20px;
+      padding: 20px;
+      max-width: 1680px;
+      margin: 0 auto;
+    }
+
+    aside,
+    section.card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    aside {
+      position: sticky;
+      top: 16px;
+      height: calc(100vh - 32px);
+      overflow: auto;
+      padding: 14px;
+    }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      background: #fff;
+    }
+
+    details[open] {
+      background: #fbfdff;
+    }
+
+    summary {
+      cursor: pointer;
+      padding: 12px 12px;
+      font-weight: 700;
+      color: var(--ink);
+      list-style-position: outside;
+    }
+
+    .group-body {
+      padding: 0 12px 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .label-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      width: fit-content;
+      max-width: 100%;
+      cursor: help;
+    }
+
+    .label-line label,
+    .check-row[data-tip] label {
+      cursor: help;
+    }
+
+    .check-row[data-tip] {
+      cursor: help;
+    }
+
+    .tooltip-layer {
+      position: fixed;
+      width: min(300px, 72vw);
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--ink);
+      color: #fff;
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.35;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 120ms ease;
+      z-index: 2147483647;
+    }
+
+    .tooltip-layer.visible {
+      opacity: 1;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--ink);
+      background: #fff;
+      font: inherit;
+      min-height: 38px;
+    }
+
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      min-height: 16px;
+      padding: 0;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .derived-box {
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .derived-box strong {
+      display: block;
+      color: var(--ink);
+      font-size: 15px;
+      margin-top: 4px;
+    }
+
+    .content {
+      display: grid;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    section.card {
+      padding: 16px;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+
+    h3 {
+      margin: 18px 0 8px;
+      font-size: 15px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfdff;
+      min-width: 0;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .metric .value {
+      font-size: 22px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .metric .sub {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .metric.state-warn {
+      border-color: #f2c94c;
+      background: #fff9e7;
+    }
+
+    .metric.state-warn .value {
+      color: var(--warn);
+    }
+
+    .metric.state-bad {
+      border-color: #f4a6a6;
+      background: #fff1f1;
+      box-shadow: inset 4px 0 0 var(--bad);
+    }
+
+    .metric.state-bad .label,
+    .metric.state-bad .value {
+      color: var(--bad);
+    }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.72fr) minmax(230px, 1.25fr) minmax(130px, 0.8fr) minmax(220px, 1.1fr);
+      align-items: center;
+      gap: 12px;
+    }
+
+    .arch-node {
+      min-height: 150px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfdff;
+      padding: 14px;
+      display: grid;
+      align-content: start;
+      gap: 8px;
+    }
+
+    .arch-title {
+      font-size: 13px;
+      font-weight: 850;
+      color: var(--ink);
+    }
+
+    .arch-main {
+      font-size: 24px;
+      font-weight: 850;
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+
+    .arch-list {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .arch-link {
+      min-height: 112px;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .arch-line {
+      height: 3px;
+      background: var(--accent);
+      border-radius: 999px;
+      position: relative;
+    }
+
+    .arch-line::before,
+    .arch-line::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 9px;
+      height: 9px;
+      border-top: 3px solid var(--accent);
+      border-right: 3px solid var(--accent);
+    }
+
+    .arch-line::before {
+      left: -1px;
+      transform: translateY(-50%) rotate(-135deg);
+    }
+
+    .arch-line::after {
+      right: -1px;
+      transform: translateY(-50%) rotate(45deg);
+    }
+
+    .arch-link strong {
+      display: block;
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .status.good {
+      background: var(--good-bg);
+      color: var(--good);
+    }
+
+    .status.warn {
+      background: var(--warn-bg);
+      color: var(--warn);
+    }
+
+    .status.bad {
+      background: var(--bad-bg);
+      color: var(--bad);
+    }
+
+    .status.neutral {
+      background: #eef2f7;
+      color: #344054;
+    }
+
+    .table-wrap {
+      width: 100%;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 680px;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: right;
+      vertical-align: middle;
+      font-size: 13px;
+    }
+
+    th {
+      color: #344054;
+      background: #f8fafc;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      font-weight: 800;
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: left;
+      font-weight: 700;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .active-row td {
+      background: #eef5ff;
+    }
+
+    .status-legend,
+    .table-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .status-legend {
+      margin-top: 10px;
+      font-weight: 650;
+    }
+
+    .status-scale {
+      display: grid;
+      grid-template-columns: minmax(180px, 360px) minmax(180px, 1fr);
+      gap: 10px 12px;
+      align-items: center;
+    }
+
+    .status-bar {
+      display: grid;
+      grid-template-columns: 3fr 1fr 54px;
+      height: 10px;
+      overflow: hidden;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .status-bar-ok {
+      background: var(--good);
+    }
+
+    .status-bar-tight {
+      background: var(--warn);
+    }
+
+    .status-bar-over {
+      background: var(--bad);
+    }
+
+    .status-scale-labels {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      align-items: center;
+    }
+
+    .status-scale-labels span {
+      white-space: nowrap;
+    }
+
+    .table-note {
+      margin: 7px 0 0;
+    }
+
+    .formula {
+      background: #0f172a;
+      color: #e5e7eb;
+      border-radius: 8px;
+      padding: 12px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: #eef5ff;
+      padding: 11px 12px;
+      border-radius: 6px;
+      color: #22324d;
+      font-size: 13px;
+    }
+
+    .deadline-strip {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.6;
+    }
+
+    .deadline-strip strong {
+      color: var(--ink);
+      font-weight: 800;
+    }
+
+    .chart-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+    }
+
+    .chart-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      margin-bottom: 4px;
+    }
+
+    .chart-reset {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: #344054;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 4px 8px;
+      cursor: pointer;
+    }
+
+    .chart-panel svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      touch-action: none;
+      cursor: crosshair;
+      user-select: none;
+    }
+
+    .chart-hover {
+      min-height: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      margin-top: 4px;
+    }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-swatch {
+      width: 18px;
+      height: 3px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .caveats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .caveat {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 13px;
+    }
+
+    .caveat strong {
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    @media (max-width: 1100px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        position: static;
+        height: auto;
+      }
+
+      .summary-grid,
+      .caveats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .architecture {
+        grid-template-columns: 1fr;
+      }
+
+      .arch-node {
+        min-height: auto;
+      }
+
+      .arch-link {
+        min-height: auto;
+        padding: 2px 0 8px;
+      }
+
+      .arch-line {
+        width: 3px;
+        height: 34px;
+        margin: 0 auto;
+      }
+
+      .arch-line::before {
+        left: 50%;
+        top: 0;
+        transform: translateX(-50%) rotate(-45deg);
+      }
+
+      .arch-line::after {
+        left: 50%;
+        right: auto;
+        top: auto;
+        bottom: 0;
+        transform: translateX(-50%) rotate(135deg);
+      }
+    }
+
+    @media (max-width: 720px) {
+      header,
+      main {
+        padding-left: 12px;
+        padding-right: 12px;
+      }
+
+      .summary-grid,
+      .caveats {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        min-width: 560px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Real-World RL Speed-of-Light Calculator</h1>
+    <p class="subtitle">
+      Parameter-driven SOL tables for a large-scale real-robot async RL workload.
+      The calculator models workload shape and theoretical data-movement bounds, not implementation details.
+    </p>
+  </header>
+
+  <main>
+    <aside aria-label="Inputs">
+      <details open>
+        <summary>Core Workload</summary>
+        <div class="group-body">
+          <div class="field">
+            <div class="label-line" data-tip="Number of physical robots producing online rollout data. Replay production scales with this value."><label for="robotCount">Physical robot count N_robot</label></div>
+            <input id="robotCount" type="number" min="1" step="1" value="100">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Number of robots served by one rollout GPU. K_env=2 is the default multiplexed rollout assumption; K_env>1 reduces rollout GPU count but increases local batching/fan-in pressure."><label for="robotsPerGpu">Robots per rollout GPU K_env</label></div>
+            <input id="robotsPerGpu" type="number" min="1" step="1" value="2">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Primitive robot control rate in Hz. It scales environment steps/s, horizon production rate, and RTC lookahead."><label for="frequency">Control frequency f</label></div>
+            <input id="frequency" type="number" min="0.001" step="0.1" value="30">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Number of primitive actions generated per policy call. RTC half-overlap uses C/2 as the default stride."><label for="chunkLength">Action chunk length C</label></div>
+            <input id="chunkLength" type="number" min="1" step="1" value="50">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Max primitive steps per rollout horizon. FIFO horizon production is N*f/H."><label for="horizon">Episode horizon H</label></div>
+            <input id="horizon" type="number" min="1" step="1" value="100">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Serialized payload for one full rollout policy version. Default uses a 6GB BF16 parameter-payload sizing point; increase this if the real publish payload includes extra state_dict overhead."><label for="weightPayload">Model weight payload W (GB)</label></div>
+            <input id="weightPayload" type="number" min="0.001" step="0.1" value="6">
+            <span class="hint">Default is a 6GB BF16 parameter-payload sizing point; measured publish payloads can be larger.</span>
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Replay FIFO insert unit. Step-level stores one entry per primitive step; chunk-level stores one entry per action chunk."><label for="replayUnit">Replay granularity R_unit</label></div>
+            <select id="replayUnit">
+              <option value="step" selected>step</option>
+              <option value="chunk">chunk</option>
+            </select>
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Rollout weight publish cadence. K=1 means one new rollout weight version per global horizon period H/f."><label for="updateKHorizons">Weight update every K horizons</label></div>
+            <input id="updateKHorizons" type="number" min="1" step="1" value="1">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Allowed rollout lag in policy versions. L=1 is the ideal one-version-off target."><label for="lagL">Selected policy lag L</label></div>
+            <select id="lagL">
+              <option value="1" selected>L=1</option>
+              <option value="2">L=2</option>
+              <option value="4">L=4</option>
+              <option value="8">L=8</option>
+            </select>
+          </div>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Rollout Cluster</summary>
+        <div class="group-body">
+          <div class="field">
+            <div class="label-line" data-tip="Maximum physical rollout GPU slots per node. Active allgather ranks use the actual GPUs present on each node, including partial tail nodes."><label for="rolloutGpusPerNode">Rollout GPUs per physical node G_max</label></div>
+            <input id="rolloutGpusPerNode" type="number" min="1" step="1" value="8">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="B_rollout_intra: rollout-node-internal GPU fabric bandwidth for intra-node allgather, in GB/s per GPU bidirectional. This is PCIe/NVLink/NVSwitch, not the rollout cluster network."><label for="rolloutIntraBw">B_rollout_intra: intra-node GPU fabric (GB/s per GPU)</label></div>
+            <input id="rolloutIntraBw" type="number" min="0.1" step="1" value="64">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="B_rollout_inter: per-node bidirectional network injection bandwidth for rollout inter-node collectives. This is rollout-cluster east-west network capacity per physical node, not PCIe/NVLink inside one node."><label for="rolloutInterBw">B_rollout_inter: per-node rollout inter-node bandwidth (Gbps/node)</label></div>
+            <input id="rolloutInterBw" type="number" min="1" step="1" value="100">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Measured or assumed p99 bucket for capture, preprocess, small transport lower bound, pack/unpack, and ser/deser before inference."><label for="obsP99">Observation pipeline p99 T_obs (s)</label></div>
+            <input id="obsP99" type="number" min="0" step="0.001" value="0.01">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="p99 time for producing one action chunk on the rollout GPU. This is usually the dominant RTC next-chunk critical-path term."><label for="inferP99">Chunk inference p99 T_infer (s)</label></div>
+            <input id="inferP99" type="number" min="0" step="0.01" value="0.150">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Measured or assumed p99 bucket for action transport, pack/unpack, ser/deser, and robot controller enqueue. Action payload is usually tiny."><label for="actionP99">Action pipeline p99 T_action (s)</label></div>
+            <input id="actionP99" type="number" min="0" step="0.001" value="0.01">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Extra p99 margin for queueing, scheduling, runtime, link jitter, and non-modeled timing variance."><label for="jitterP99">RTC jitter reserve p99 (s)</label></div>
+            <input id="jitterP99" type="number" min="0" step="0.001" value="0.05">
+          </div>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Network / Weight Path</summary>
+        <div class="group-body">
+          <div class="field">
+            <div class="label-line" data-tip="Total aggregate effective bandwidth per direction between train and rollout clusters, not per link. Replay uses rollout->train; weight sync uses train->rollout."><label for="crossBw">Cross-cluster aggregate bandwidth per direction (Gbps)</label></div>
+            <input id="crossBw" type="number" min="1" step="1" value="10">
+            <span class="hint">Total aggregate effective bandwidth per direction; assumes symmetric full-duplex capacity.</span>
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Direct = direct per-GPU fanout. Node fanout = per-node scatter + allgather. Hierarchical = optimal sharded scatter + rollout inter-node collective."><label for="weightPath">Selected weight path for summary</label></div>
+            <select id="weightPath">
+              <option value="optimal" selected>Hierarchical</option>
+              <option value="node">Node fanout</option>
+              <option value="direct">Direct</option>
+            </select>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Train Cluster</summary>
+        <div class="group-body">
+          <div class="field">
+            <div class="label-line" data-tip="Training GPU count. This does not directly determine train update time until the train resource model is added."><label for="trainGpus">Train GPUs T_gpu</label></div>
+            <input id="trainGpus" type="number" min="1" step="1" value="32">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Used only to derive train node count for sizing context. Default assumes 8 GPUs per node."><label for="trainGpusPerNode">Train GPUs per physical node</label></div>
+            <input id="trainGpusPerNode" type="number" min="1" step="1" value="8">
+          </div>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Payloads</summary>
+        <div class="group-body">
+          <div class="field">
+            <div class="label-line" data-tip="Payload for one step-level replay entry. Used when replay granularity is step or as an override for customer-provided sizing."><label for="stepPayload">S_step (MB per primitive step)</label></div>
+            <input id="stepPayload" type="number" min="0.001" step="0.01" value="1.0">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Payload for one chunk-level replay FIFO entry. Usually boundary observations plus chunk metadata, not all intermediate images. Default 1MB is conservative for image-heavy replay."><label for="chunkPayload">S_chunk (MB per chunk entry)</label></div>
+            <input id="chunkPayload" type="number" min="0.001" step="0.01" value="1.0">
+          </div>
+          <div class="check-row" data-tip="When enabled, S_step and S_chunk use the image-derived helper instead of manual override values.">
+            <input id="useDerivedStep" type="checkbox">
+            <label for="useDerivedStep">Use camera-derived replay payloads</label>
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Number of RGB camera streams included in the replay payload helper."><label for="cameraViews">Camera views</label></div>
+            <input id="cameraViews" type="number" min="1" step="1" value="3">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Square image side length used by the camera payload helper, default 224x224."><label for="resolution">Image resolution (square px)</label></div>
+            <input id="resolution" type="number" min="1" step="1" value="224">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Whether a replay entry stores only obs_t or both obs_t and obs_t+1."><label for="obsFactor">Observation copies per entry</label></div>
+            <select id="obsFactor">
+              <option value="1">obs_t only</option>
+              <option value="2" selected>obs_t + obs_t1</option>
+            </select>
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Payload divisor for compressed image transport or storage. Use 1.0 for raw uint8 RGB."><label for="compressionRatio">Compression ratio</label></div>
+            <input id="compressionRatio" type="number" min="0.1" step="0.1" value="1.0">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Bytes per image channel in the replay payload helper. Use 1 for uint8 RGB, 2 for uint16 or fp16, 4 for fp32."><label for="bytesPerChannel">Bytes per channel</label></div>
+            <input id="bytesPerChannel" type="number" min="0.1" step="0.1" value="1">
+          </div>
+          <div class="field">
+            <div class="label-line" data-tip="Optional calibration overhead for metadata, framing, tensor headers, and alignment. Default 10% is a practical sizing buffer, not a physical lower bound."><label for="payloadOverhead">Metadata/framing overhead (%)</label></div>
+            <input id="payloadOverhead" type="number" min="0" step="1" value="10">
+          </div>
+          <div class="derived-box">
+            Camera-derived replay payload
+            <strong id="derivedStepPayload">0.99 MB</strong>
+            <span class="hint">Used for S_step and S_chunk when the camera-derived switch is checked.</span>
+          </div>
+        </div>
+      </details>
+    </aside>
+
+    <div class="content">
+      <section class="card">
+        <h2>Top-Level Summary</h2>
+        <div class="summary-grid" id="summaryGrid"></div>
+        <div class="status-legend">
+          <div class="status-scale" aria-label="Status threshold legend">
+            <div class="status-bar" aria-hidden="true">
+              <div class="status-bar-ok"></div>
+              <div class="status-bar-tight"></div>
+              <div class="status-bar-over"></div>
+            </div>
+            <div class="status-scale-labels">
+              <span><span class="status good">OK</span> <=75%</span>
+              <span><span class="status warn">Tight</span> 75-100%</span>
+              <span><span class="status bad">Over</span> >100%</span>
+              <span><span class="status neutral">Input</span> fixed</span>
+              <span><span class="status neutral">TBD</span> not modeled</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>System Architecture</h2>
+        <div class="architecture" id="architectureDiagram"></div>
+      </section>
+
+      <section class="card">
+        <h2>Cluster Sizing</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Value</th>
+                <th>Formula / note</th>
+              </tr>
+            </thead>
+            <tbody id="clusterTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" id="networkCard">
+        <h2>Network Bandwidth</h2>
+        <div class="callout">
+          Current network domains used by the SOL model; train-side bandwidth is listed as TBD.
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Network domain</th>
+                <th>Symbol</th>
+                <th>Scope</th>
+                <th>Current value</th>
+                <th>Used by</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="networkTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>RTC Timing</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Value</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="rtcTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Replay Buffer (FIFO)</h2>
+        <div class="callout">
+          FIFO producer-side pressure from rollout into replay. Consume-side training throughput is left as a later model input.
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Mode</th>
+                <th>Horizons/s</th>
+                <th>Entries/horizon</th>
+                <th>Entries/s</th>
+                <th>Payload/entry</th>
+                <th>Ingest MB/s</th>
+                <th>Line rate</th>
+                <th>Represented steps/s</th>
+                <th>Represented steps/MB</th>
+              </tr>
+            </thead>
+            <tbody id="replayTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Weight Sync</h2>
+        <h3>Path Cost</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Path</th>
+                <th>Cross comm volume</th>
+                <th>Cross payload per receiver</th>
+                <th>Cross time</th>
+                <th>Rollout inter comm volume/node</th>
+                <th>Rollout inter time</th>
+                <th>Rollout intra comm volume/GPU</th>
+                <th>Rollout intra time</th>
+                <th>SoL ref (sum)</th>
+                <th>Pipelined LB</th>
+                <th>Reduction vs direct (sum)</th>
+              </tr>
+            </thead>
+            <tbody id="fanoutTable"></tbody>
+          </table>
+        </div>
+        <p class="table-note">Path names: Direct = direct per-GPU fanout; Node fanout = per-node scatter + allgather; Hierarchical = optimal sharded scatter + rollout inter-node collective. Rollout inter comm volume/node is critical per-node send+recv and uses B_rollout_inter; rollout intra comm volume/GPU is critical per-GPU send+recv. Reduction vs direct (sum) compares SoL ref (sum) time, not pipelined LB.</p>
+
+        <h3>Version Lag Requirement</h3>
+        <div class="deadline-strip" id="deadlineStrip"></div>
+        <div class="chart-panel" id="weightSyncChart"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Path</th>
+                <th>Cross comm volume</th>
+                <th>Cross time</th>
+                <th>Rollout inter comm volume/node</th>
+                <th>Rollout inter time</th>
+                <th>Rollout intra comm volume/GPU</th>
+                <th>Rollout intra time</th>
+                <th>Required B_cross @ L=1</th>
+                <th>Required B_cross @ L=2</th>
+                <th>Required B_cross @ L=4</th>
+                <th>Required B_cross @ L=8</th>
+                <th>Pipelined LB</th>
+                <th>SoL ref (sum)</th>
+                <th>Satisfied L</th>
+                <th>Status @ selected L</th>
+              </tr>
+            </thead>
+            <tbody id="lagTable"></tbody>
+          </table>
+        </div>
+        <p class="table-note">Version Lag uses SoL ref (sum) for deadline checks and required B_cross. Rollout inter comm volume/node is per-node send+recv; rollout intra comm volume/GPU is per-GPU send+recv. Pipelined LB is the optimistic max(cross, rollout inter, rollout intra) lower bound.</p>
+      </section>
+
+      <section class="card">
+        <h2>Rollout Weight Update Deadline</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Value</th>
+                <th>Formula / condition</th>
+              </tr>
+            </thead>
+            <tbody id="trainBudgetTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Formulas</h2>
+        <pre class="formula">N_rollout_gpu = ceil(N_robot / K_env)
+M_rollout = ceil(N_rollout_gpu / G_max)
+r_i = active rollout GPU ranks on node i
+M_train = ceil(T_gpu / G_train_node)
+
+step_interval = 1 / f
+chunk_coverage = C / f
+rtc_stride = C / 2
+rtc_lookahead = rtc_stride / f
+T_obs_pipeline_p99 + T_infer_p99 + T_action_pipeline_p99 + T_jitter_p99 <= rtc_lookahead
+
+T_obs_pipeline_p99 = capture + preprocess + transport_lb + pack/unpack + ser/deser + queue
+T_action_pipeline_p99 = transport_lb + pack/unpack + ser/deser + robot_enqueue
+T_transport_lb = payload_bits / bandwidth + fixed_link_latency
+H2D/D2H/PCIe terms can be lower-bounded by bytes / effective_bandwidth.
+For K_env > 1, obs/infer/action p99 buckets must be measured under the chosen batching and fan-in/fan-out policy.
+
+horizons_per_sec = N_robot * f / H
+step_entries_per_sec = horizons_per_sec * H
+chunk_entries_per_sec = horizons_per_sec * ceil(H / C)
+
+step_replay_MBps = N_robot * f * S_step
+chunk_replay_MBps = horizons_per_sec * ceil(H / C) * S_chunk
+represented_primitive_steps_per_sec = N_robot * f
+represented_steps_per_MB = represented_primitive_steps_per_sec / replay_MBps
+per_full_rollout_gpu_steps_per_sec = K_env * f
+
+direct_weight_bytes = N_rollout_gpu * W
+node_scatter_bytes = M_rollout * W
+B_cross = total aggregate effective bandwidth per direction
+rollout_intra_recv_per_gpu_i = (r_i - 1) / r_i * W
+rollout_intra_send_recv_per_gpu_i = 2 * rollout_intra_recv_per_gpu_i
+rollout_intra_critical = max_i(rollout_intra_send_recv_per_gpu_i / B_rollout_intra)
+optimal_cross_bytes = W
+optimal_rollout_inter_recv_bytes = (M_rollout - 1) * W
+optimal_rollout_inter_send_recv_total_bytes = 2 * optimal_rollout_inter_recv_bytes
+optimal_rollout_inter_send_recv_per_node = optimal_rollout_inter_send_recv_total_bytes / M_rollout
+B_rollout_inter = per-node effective bidirectional rollout inter-node bandwidth
+T_rollout_intra = rollout_intra_critical
+T_sync_direct = direct_weight_bytes * 8 / B_cross
+T_sync_node_cross = node_scatter_bytes * 8 / B_cross
+T_sync_node_no_pipeline = T_sync_node_cross + rollout_intra_critical
+T_sync_node_pipeline_lb = max(T_sync_node_cross, rollout_intra_critical)
+T_sync_optimal_cross = W * 8 / B_cross
+T_sync_optimal_rollout_inter = optimal_rollout_inter_send_recv_per_node * 8 / B_rollout_inter
+T_sync_optimal_no_pipeline = T_sync_optimal_cross + T_sync_optimal_rollout_inter + rollout_intra_critical
+T_sync_optimal_pipeline_lb = max(T_sync_optimal_cross, T_sync_optimal_rollout_inter, rollout_intra_critical)
+
+T_update = K * H / f
+deadline = L * T_update
+fixed_rollout_time = T_rollout_inter + T_rollout_intra
+required_B_cross_sum_ref = cross_comm_volume * 8 / (deadline - fixed_rollout_time)
+T_sync_pipelined_lb = max(T_cross, T_rollout_inter, T_rollout_intra)
+T_sync_sum_ref = T_cross + T_rollout_inter + T_rollout_intra
+T_sync_selected = direct, node, or hierarchical sum reference for selected path
+min_L_for_sync_ref = max(1, ceil(T_sync_selected / T_update))
+replay_uplink_Gbps = replay_MBps * 8 / 1000</pre>
+      </section>
+
+      <section class="card">
+        <h2>Caveats Not Modeled in v1</h2>
+        <div class="caveats">
+          <div class="caveat"><strong>Robot reset</strong>Reset after success/failure reduces effective robot utilization, but does not affect v1 SOL tables.</div>
+          <div class="caveat"><strong>Availability / fault tolerance</strong>HA, failover, replay durability, scheduler resubmission, and degraded mode are out of scope.</div>
+          <div class="caveat"><strong>Reward/eval overhead</strong>Reward models, evaluators, human labels, and validation rollouts are not included.</div>
+          <div class="caveat"><strong>Cold logging</strong>Step-level audit video/log retention can be much larger than hot replay.</div>
+          <div class="caveat"><strong>RTC data movement</strong>Wire, PCIe, H2D, and D2H lower bounds are easy to derive, but pack/unpack and ser/deser stay inside measured pipeline buckets.</div>
+          <div class="caveat"><strong>Algorithm semantics</strong>Learning quality and on-policy constraints are represented only through the lag parameter L.</div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="tooltipLayer" class="tooltip-layer" role="tooltip"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const LAGS = [1, 2, 4, 8];
+    const tooltipLayer = $("tooltipLayer");
+    let activeTooltipTarget = null;
+    let weightChartRange = null;
+
+    function positionTooltip(target) {
+      if (!target || !tooltipLayer.classList.contains("visible")) return;
+      const rect = target.getBoundingClientRect();
+      const margin = 10;
+      const gap = 10;
+      const width = Math.min(300, window.innerWidth - margin * 2);
+      tooltipLayer.style.width = `${width}px`;
+
+      const tipRect = tooltipLayer.getBoundingClientRect();
+      let left = rect.right + gap;
+      if (left + tipRect.width > window.innerWidth - margin) {
+        left = rect.left - tipRect.width - gap;
+      }
+      if (left < margin) left = margin;
+
+      let top = rect.top + rect.height / 2 - tipRect.height / 2;
+      if (top < margin) top = margin;
+      if (top + tipRect.height > window.innerHeight - margin) {
+        top = window.innerHeight - tipRect.height - margin;
+      }
+
+      tooltipLayer.style.left = `${left}px`;
+      tooltipLayer.style.top = `${top}px`;
+    }
+
+    function showTooltip(target) {
+      const tip = target.dataset.tip;
+      if (!tip) return;
+      activeTooltipTarget = target;
+      tooltipLayer.textContent = tip;
+      tooltipLayer.classList.add("visible");
+      positionTooltip(target);
+    }
+
+    function hideTooltip(target) {
+      if (target && target !== activeTooltipTarget) return;
+      activeTooltipTarget = null;
+      tooltipLayer.classList.remove("visible");
+    }
+
+    function numberValue(id, fallback) {
+      const value = Number($(id).value);
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function selectValue(id) {
+      return $(id).value;
+    }
+
+    function fmt(value, digits = 2) {
+      if (!Number.isFinite(value)) return "-";
+      if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString();
+      if (Math.abs(value) >= 100) return value.toFixed(1);
+      if (Math.abs(value) >= 10) return value.toFixed(2);
+      if (Math.abs(value) >= 1) return value.toFixed(digits);
+      if (Math.abs(value) >= 0.01) return value.toFixed(3);
+      return value.toFixed(4);
+    }
+
+    function fmtInt(value) {
+      if (!Number.isFinite(value)) return "-";
+      return Math.round(value).toLocaleString();
+    }
+
+    function fmtGB(value) {
+      return `${fmt(value)} GB`;
+    }
+
+    function fmtGBRange(minValue, maxValue) {
+      if (Math.abs(minValue - maxValue) < 1e-9) return fmtGB(minValue);
+      return `${fmtGB(minValue)} - ${fmtGB(maxValue)}`;
+    }
+
+    function fmtMBps(value) {
+      if (value >= 1000) return `${fmt(value / 1000)} GB/s`;
+      return `${fmt(value)} MB/s`;
+    }
+
+    function fmtGbps(value) {
+      if (value >= 1000) return `${fmt(value / 1000)} Tbps`;
+      return `${fmt(value)} Gbps`;
+    }
+
+    function fmtRequiredGbps(value) {
+      return Number.isFinite(value) ? fmtGbps(value) : "infeasible";
+    }
+
+    function fmtGBps(value) {
+      if (value >= 1000) return `${fmt(value / 1000)} TB/s`;
+      return `${fmt(value)} GB/s`;
+    }
+
+    function fmtSeconds(value) {
+      if (value >= 1) return `${fmt(value)} s`;
+      return `${fmt(value * 1000, 1)} ms`;
+    }
+
+    function statusPill(label, cls) {
+      return `<span class="status ${cls}">${label}</span>`;
+    }
+
+    function weightPathLabel(path) {
+      if (path === "direct") return "Direct";
+      if (path === "node") return "Node fanout";
+      return "Hierarchical";
+    }
+
+    function capacityClass(required, capacity) {
+      if (!Number.isFinite(required) || required > capacity) return "bad";
+      if (required <= capacity * 0.75) return "good";
+      return "warn";
+    }
+
+    function timingClass(required, budget) {
+      if (!Number.isFinite(required) || required > budget) return "bad";
+      if (required <= budget * 0.75) return "good";
+      return "warn";
+    }
+
+    function classLabel(cls) {
+      return cls === "good" ? "OK" : cls === "warn" ? "Tight" : "Over";
+    }
+
+    function worstClass(classes) {
+      if (classes.includes("bad")) return "bad";
+      if (classes.includes("warn")) return "warn";
+      return "good";
+    }
+
+    function capacityStatus(required, capacity) {
+      const cls = capacityClass(required, capacity);
+      return statusPill(classLabel(cls), cls);
+    }
+
+    function requiredCrossGbps(bytesGB, deadlineSec, localSec = 0) {
+      const crossWindow = deadlineSec - localSec;
+      if (crossWindow <= 0) return Infinity;
+      return bytesGB * 8 / crossWindow;
+    }
+
+    function timingStatus(required, budget) {
+      const cls = timingClass(required, budget);
+      return statusPill(classLabel(cls), cls);
+    }
+
+    function pathStatus(crossRequired, crossCapacity, rolloutRequired, rolloutCapacity, localSec, deadlineSec) {
+      const checks = [capacityClass(crossRequired, crossCapacity), timingClass(localSec, deadlineSec)];
+      if (rolloutRequired > 0) checks.push(capacityClass(rolloutRequired, rolloutCapacity));
+      const cls = worstClass(checks);
+      return statusPill(classLabel(cls), cls);
+    }
+
+    function derivedStepPayloadMB() {
+      const views = numberValue("cameraViews", 3);
+      const res = numberValue("resolution", 224);
+      const obsFactor = numberValue("obsFactor", 2);
+      const bytesPerChannel = numberValue("bytesPerChannel", 1);
+      const compression = Math.max(numberValue("compressionRatio", 1), 0.001);
+      const overhead = numberValue("payloadOverhead", 10) / 100;
+      const bytes = obsFactor * views * res * res * 3 * bytesPerChannel / compression * (1 + overhead);
+      return bytes / 1000 / 1000;
+    }
+
+    function readInputs() {
+      const derivedStep = derivedStepPayloadMB();
+      const useDerivedStep = $("useDerivedStep").checked;
+      const stepPayload = useDerivedStep ? derivedStep : numberValue("stepPayload", 1);
+      const chunkPayload = useDerivedStep ? derivedStep : numberValue("chunkPayload", 1);
+      const frequency = Math.max(numberValue("frequency", 30), 0.001);
+      const chunkLength = Math.max(numberValue("chunkLength", 50), 1);
+      const horizon = Math.max(numberValue("horizon", 100), 1);
+      const updateKHorizons = Math.max(numberValue("updateKHorizons", 1), 1);
+      const updatePeriod = updateKHorizons * horizon / frequency;
+
+      return {
+        N: Math.max(numberValue("robotCount", 100), 1),
+        f: frequency,
+        C: chunkLength,
+        H: horizon,
+        replayUnit: selectValue("replayUnit"),
+        L: numberValue("lagL", 1),
+        K: updateKHorizons,
+        KEnv: Math.max(numberValue("robotsPerGpu", 2), 1),
+        G: Math.max(numberValue("rolloutGpusPerNode", 8), 1),
+        BRolloutIntra: Math.max(numberValue("rolloutIntraBw", 64), 0.001),
+        obsP99: numberValue("obsP99", 0.01),
+        inferP99: numberValue("inferP99", 0.15),
+        actionP99: numberValue("actionP99", 0.01),
+        jitterP99: numberValue("jitterP99", 0.05),
+        BCross: Math.max(numberValue("crossBw", 10), 0.001),
+        BRolloutInter: Math.max(numberValue("rolloutInterBw", 100), 0.001),
+        weightPath: selectValue("weightPath"),
+        Tgpu: Math.max(numberValue("trainGpus", 32), 1),
+        Gtrain: Math.max(numberValue("trainGpusPerNode", 8), 1),
+        updatePeriod,
+        SStep: Math.max(stepPayload, 0.001),
+        SChunk: Math.max(chunkPayload, 0.001),
+        W: Math.max(numberValue("weightPayload", 6), 0.001),
+        derivedStep,
+        useDerivedStep
+      };
+    }
+
+    function compute(input) {
+      const rolloutGpuCount = Math.ceil(input.N / input.KEnv);
+      const Mrollout = Math.ceil(rolloutGpuCount / input.G);
+      const Mtrain = Math.ceil(input.Tgpu / input.Gtrain);
+      const rankCounts = [];
+      for (let i = 0; i < Mrollout; i += 1) {
+        rankCounts.push(Math.min(input.G, rolloutGpuCount - i * input.G));
+      }
+      const maxNodeRanks = Math.max(...rankCounts, 1);
+      const minNodeRanks = Math.min(...rankCounts, maxNodeRanks);
+      const fullGpuRobots = Math.min(input.KEnv, input.N);
+      const tailGpuRobots = input.N % input.KEnv || fullGpuRobots;
+      const stepInterval = 1 / input.f;
+      const chunkCoverage = input.C / input.f;
+      const rtcStrideSteps = input.C / 2;
+      const rtcLookahead = rtcStrideSteps / input.f;
+      const rtcCriticalPath = input.obsP99 + input.inferP99 + input.actionP99 + input.jitterP99;
+      const horizonsPerSec = input.N * input.f / input.H;
+      const stepEntriesPerHorizon = input.H;
+      const chunkEntriesPerHorizon = Math.ceil(input.H / input.C);
+      const stepEntriesPerSec = horizonsPerSec * stepEntriesPerHorizon;
+      const chunkEntriesPerSec = horizonsPerSec * chunkEntriesPerHorizon;
+      const representedSteps = input.N * input.f;
+      const stepReplayMBps = stepEntriesPerSec * input.SStep;
+      const chunkReplayMBps = chunkEntriesPerSec * input.SChunk;
+      const activeReplayMBps = input.replayUnit === "step" ? stepReplayMBps : chunkReplayMBps;
+      const activeEntriesPerSec = input.replayUnit === "step" ? stepEntriesPerSec : chunkEntriesPerSec;
+      const stepRepresentedPerMB = stepReplayMBps > 0 ? representedSteps / stepReplayMBps : 0;
+      const chunkRepresentedPerMB = chunkReplayMBps > 0 ? representedSteps / chunkReplayMBps : 0;
+      const avgActiveReplayMBpsPerGpu = activeReplayMBps / rolloutGpuCount;
+      const fullGpuReplayStepsPerSec = fullGpuRobots * input.f;
+      const tailGpuReplayStepsPerSec = tailGpuRobots * input.f;
+      const directBytesGB = rolloutGpuCount * input.W;
+      const nodeScatterBytesGB = Mrollout * input.W;
+      const nodeShardMinGB = input.W / maxNodeRanks;
+      const nodeShardMaxGB = input.W / minNodeRanks;
+      const rolloutIntraRecvPerGpuGB = maxNodeRanks <= 1 ? 0 : (maxNodeRanks - 1) / maxNodeRanks * input.W;
+      const rolloutIntraSendRecvPerGpuGB = 2 * rolloutIntraRecvPerGpuGB;
+      const rolloutIntraSec = rolloutIntraSendRecvPerGpuGB / input.BRolloutIntra;
+      const directCrossSec = directBytesGB * 8 / input.BCross;
+      const nodeCrossSec = nodeScatterBytesGB * 8 / input.BCross;
+      const directNoPipelineSec = directCrossSec;
+      const directPipelinedSec = directCrossSec;
+      const nodeNoPipelineSec = nodeCrossSec + rolloutIntraSec;
+      const nodePipelinedSec = Math.max(nodeCrossSec, rolloutIntraSec);
+      const optimalCrossBytesGB = input.W;
+      const optimalRolloutInterRecvBytesGB = Math.max(Mrollout - 1, 0) * input.W;
+      const optimalRolloutInterTotalBytesGB = 2 * optimalRolloutInterRecvBytesGB;
+      const optimalRolloutInterBytesGB = Mrollout > 0 ? optimalRolloutInterTotalBytesGB / Mrollout : 0;
+      const optimalCrossSec = optimalCrossBytesGB * 8 / input.BCross;
+      const optimalRolloutInterSec = optimalRolloutInterBytesGB * 8 / input.BRolloutInter;
+      const optimalNoPipelineSec = optimalCrossSec + optimalRolloutInterSec + rolloutIntraSec;
+      const optimalPipelinedSec = Math.max(optimalCrossSec, optimalRolloutInterSec, rolloutIntraSec);
+      const selectedCrossBytesGB = input.weightPath === "direct" ? directBytesGB : input.weightPath === "node" ? nodeScatterBytesGB : optimalCrossBytesGB;
+      const selectedRolloutInterBytesGB = input.weightPath === "optimal" ? optimalRolloutInterBytesGB : 0;
+      const selectedRolloutInterSec = input.weightPath === "optimal" ? optimalRolloutInterSec : 0;
+      const selectedRolloutIntraBytesGB = input.weightPath === "direct" ? 0 : rolloutIntraSendRecvPerGpuGB;
+      const selectedRolloutIntraSec = input.weightPath === "direct" ? 0 : rolloutIntraSec;
+      const selectedPipelinedSec = input.weightPath === "direct" ? directPipelinedSec : input.weightPath === "node" ? nodePipelinedSec : optimalPipelinedSec;
+      const selectedSumSec = input.weightPath === "direct" ? directNoPipelineSec : input.weightPath === "node" ? nodeNoPipelineSec : optimalNoPipelineSec;
+      const policyDeadline = input.L * input.updatePeriod;
+      const weightRequiredGbps = requiredCrossGbps(selectedCrossBytesGB, policyDeadline, selectedRolloutInterSec + selectedRolloutIntraSec);
+      const replayGbps = activeReplayMBps * 8 / 1000;
+      const minL = Math.max(1, Math.ceil(selectedSumSec / input.updatePeriod));
+      const weightSyncOnlySec = selectedSumSec;
+      const horizonsPerUpdate = input.N * input.K;
+      const stepsPerUpdate = input.N * input.K * input.H;
+
+      return {
+        rolloutGpuCount,
+        Mrollout,
+        Mtrain,
+        rankCounts,
+        maxNodeRanks,
+        minNodeRanks,
+        fullGpuRobots,
+        tailGpuRobots,
+        stepInterval,
+        chunkCoverage,
+        rtcStrideSteps,
+        rtcLookahead,
+        rtcCriticalPath,
+        horizonsPerSec,
+        stepEntriesPerHorizon,
+        chunkEntriesPerHorizon,
+        stepEntriesPerSec,
+        chunkEntriesPerSec,
+        representedSteps,
+        stepReplayMBps,
+        chunkReplayMBps,
+        activeReplayMBps,
+        activeEntriesPerSec,
+        stepRepresentedPerMB,
+        chunkRepresentedPerMB,
+        avgActiveReplayMBpsPerGpu,
+        fullGpuReplayStepsPerSec,
+        tailGpuReplayStepsPerSec,
+        directBytesGB,
+        nodeScatterBytesGB,
+        nodeShardMinGB,
+        nodeShardMaxGB,
+        optimalCrossBytesGB,
+        optimalRolloutInterRecvBytesGB,
+        optimalRolloutInterTotalBytesGB,
+        optimalRolloutInterBytesGB,
+        selectedCrossBytesGB,
+        selectedRolloutInterBytesGB,
+        selectedRolloutInterSec,
+        selectedRolloutIntraBytesGB,
+        selectedRolloutIntraSec,
+        selectedPipelinedSec,
+        selectedSumSec,
+        rolloutIntraRecvPerGpuGB,
+        rolloutIntraSendRecvPerGpuGB,
+        rolloutIntraSec,
+        directCrossSec,
+        nodeCrossSec,
+        directNoPipelineSec,
+        directPipelinedSec,
+        nodeNoPipelineSec,
+        nodePipelinedSec,
+        optimalCrossSec,
+        optimalRolloutInterSec,
+        optimalNoPipelineSec,
+        optimalPipelinedSec,
+        weightRequiredGbps,
+        replayGbps,
+        minL,
+        weightSyncLowerBoundSec: selectedPipelinedSec,
+        weightSyncRefSec: selectedSumSec,
+        weightSyncOnlySec,
+        policyDeadline,
+        horizonsPerUpdate,
+        stepsPerUpdate
+      };
+    }
+
+    function setRows(id, rows) {
+      $(id).innerHTML = rows.join("");
+    }
+
+    function row(cells, cls = "") {
+      return `<tr class="${cls}">${cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`;
+    }
+
+    function metric(label, value, sub = "", state = "") {
+      const cls = state ? `metric state-${state}` : "metric";
+      return `<div class="${cls}"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+    }
+
+    function archNode(title, main, items) {
+      return [
+        '<div class="arch-node">',
+        `<div class="arch-title">${title}</div>`,
+        `<div class="arch-main">${main}</div>`,
+        `<div class="arch-list">${items.map((item) => `<div>${item}</div>`).join("")}</div>`,
+        '</div>'
+      ].join("");
+    }
+
+    function archLink(title, items) {
+      return [
+        '<div class="arch-link">',
+        '<div class="arch-line"></div>',
+        `<strong>${title}</strong>`,
+        items.map((item) => `<div>${item}</div>`).join(""),
+        '</div>'
+      ].join("");
+    }
+
+    function renderArchitecture(input, data) {
+      $("architectureDiagram").innerHTML = [
+        archNode("Robots", `${fmtInt(input.N)} robots`, [
+          `${fmt(input.f)} Hz control frequency`,
+          `C=${fmtInt(input.C)} action chunk`,
+          `${fmtInt(input.KEnv)} robot(s) per rollout GPU`
+        ]),
+        archLink("Local robot-control links", [
+          "co-located rollout node",
+          "fan-in/fan-out p99 included in RTC buckets"
+        ]),
+        archNode("Rollout / Inference Cluster", `${fmtInt(data.Mrollout)} nodes`, [
+          `${fmtInt(input.G)} rollout GPUs/node`,
+          `${fmtInt(data.rolloutGpuCount)} rollout GPUs total`,
+          `${fmtGBps(input.BRolloutIntra)} B_rollout_intra`
+        ]),
+        archLink("Cross-cluster fabric", [
+          `${fmtGbps(input.BCross)} per direction`,
+          `${fmtGbps(input.BRolloutInter)}/node B_rollout_inter`
+        ]),
+        archNode("Train Cluster", `${fmtInt(data.Mtrain)} nodes`, [
+          `${fmtInt(input.Gtrain)} train GPUs/node`,
+          `${fmtInt(input.Tgpu)} train GPUs total`,
+          "train update time not modeled in v1"
+        ])
+      ].join("");
+    }
+
+    function renderSummary(input, data) {
+      const rtcStatus = timingClass(data.rtcCriticalPath, data.rtcLookahead);
+      const replayStatus = capacityClass(data.replayGbps, input.BCross);
+      const weightCrossStatus = capacityClass(data.weightRequiredGbps, input.BCross);
+      const rolloutInterStatus = input.weightPath === "optimal" ? timingClass(data.selectedRolloutInterSec, data.policyDeadline) : "";
+      const weightSyncStatus = timingClass(data.weightSyncOnlySec, data.policyDeadline);
+      const activeMode = input.replayUnit === "step" ? "step replay" : "chunk replay";
+      const rolloutCollectiveText = input.weightPath === "optimal" ? fmtSeconds(data.selectedRolloutInterSec) : "N/A";
+      const rolloutCollectiveSub = input.weightPath === "optimal"
+        ? `${timingStatus(data.selectedRolloutInterSec, data.policyDeadline)} ${fmtGB(data.selectedRolloutInterBytesGB)} send+recv/node over fixed ${fmtGbps(input.BRolloutInter)}/node B_rollout_inter`
+        : "selected path does not use B_rollout_inter";
+
+      $("summaryGrid").innerHTML = [
+        metric("Rollout cluster", `${fmtInt(data.Mrollout)} nodes`, `${fmtInt(data.rolloutGpuCount)} GPUs for ${fmtInt(input.N)} robots; K_env=${fmtInt(input.KEnv)}`),
+        metric("Train cluster", `${fmtInt(data.Mtrain)} nodes`, `${fmtInt(input.Tgpu)} train GPUs`),
+        metric("Replay Buffer", fmtMBps(data.activeReplayMBps), `${capacityStatus(data.replayGbps, input.BCross)} replay uplink ${fmtGbps(data.replayGbps)} / ${fmtGbps(input.BCross)} B_cross; aggregate ${activeMode}, ${fmtInt(data.activeEntriesPerSec)} entries/s`, replayStatus),
+        metric("Replay / full rollout GPU", fmtMBps(data.avgActiveReplayMBpsPerGpu), `${fmtInt(data.fullGpuReplayStepsPerSec)} primitive steps/s = K_env * f; tail GPU ${fmtInt(data.tailGpuReplayStepsPerSec)}`),
+        metric("Fleet FIFO", `${fmt(data.horizonsPerSec)} horizons/s`, `${fmtInt(data.representedSteps)} primitive steps/s = N_robot * f (${fmtInt(input.N)} * ${fmt(input.f)}Hz)`),
+        metric("Weight cross downlink", fmtRequiredGbps(data.weightRequiredGbps), `${capacityStatus(data.weightRequiredGbps, input.BCross)} cross capacity ${fmtGbps(input.BCross)}`, weightCrossStatus),
+        metric("B_rollout_inter", rolloutCollectiveText, rolloutCollectiveSub, rolloutInterStatus),
+        metric("Weight sync SoL ref", fmtSeconds(data.weightSyncOnlySec), `${timingStatus(data.weightSyncOnlySec, data.policyDeadline)} sum reference; pipelined LB ${fmtSeconds(data.selectedPipelinedSec)}; deadline ${fmtSeconds(data.policyDeadline)} (L=${fmt(input.L)})`, weightSyncStatus),
+        metric("Min L for SoL ref", data.minL <= 8 ? `L=${data.minL}` : `L>${fmtInt(8)}`, `selected path: ${weightPathLabel(input.weightPath)}; excludes T_train/T_export/T_apply`, data.minL > input.L ? "bad" : ""),
+        metric("RTC lookahead", fmtSeconds(data.rtcLookahead), `${statusPill(classLabel(rtcStatus), rtcStatus)} RTC next-chunk critical path ${fmtSeconds(data.rtcCriticalPath)}`, rtcStatus)
+      ].join("");
+    }
+
+    function renderCluster(input, data) {
+      setRows("clusterTable", [
+        row(["Robots", fmtInt(input.N), "input N_robot"]),
+        row(["Robots per rollout GPU", fmtInt(input.KEnv), "input K_env"]),
+        row(["Control frequency", `${fmt(input.f)} Hz`, "input f"]),
+        row(["Model weight payload", fmtGB(input.W), "Pi0.5-3B BF16 default publish payload"]),
+        row(["Rollout GPUs", fmtInt(data.rolloutGpuCount), "ceil(N_robot / K_env)"]),
+        row(["Rollout GPUs/node", fmtInt(input.G), "G_max, default 8"]),
+        row(["Active rollout ranks/node", `${fmtInt(data.maxNodeRanks)} max; ${fmtInt(data.minNodeRanks)} min`, "partial tail nodes use actual active ranks"]),
+        row(["B_rollout_intra", fmtGBps(input.BRolloutIntra), "rollout node intra-GPU fabric; PCIe/NVLink/NVSwitch"]),
+        row(["B_rollout_inter", `${fmtGbps(input.BRolloutInter)}/node`, "per-node rollout inter-node bidirectional injection bandwidth"]),
+        row(["Rollout nodes", fmtInt(data.Mrollout), "ceil(N_rollout_gpu / G_max)"]),
+        row(["Replay pressure / full rollout GPU", `${fmtInt(data.fullGpuReplayStepsPerSec)} primitive steps/s`, `K_env * f; tail GPU ${fmtInt(data.tailGpuReplayStepsPerSec)} primitive steps/s`]),
+        row(["Train GPUs", fmtInt(input.Tgpu), "input T_gpu"]),
+        row(["Train GPUs/node", fmtInt(input.Gtrain), "default 8"]),
+        row(["Train nodes", fmtInt(data.Mtrain), "ceil(T_gpu / G_train_node)"]),
+        row(["Weight update period", fmtSeconds(input.updatePeriod), `every ${fmt(input.K)} horizon(s)`]),
+        row(["Selected lag deadline", fmtSeconds(data.policyDeadline), `L=${fmt(input.L)} versions`])
+      ]);
+    }
+
+    function renderRtc(input, data) {
+      setRows("rtcTable", [
+        row(["Control step interval", fmtSeconds(data.stepInterval), "reference"]),
+        row(["RTC chunk coverage", fmtSeconds(data.chunkCoverage), "C / f"]),
+        row(["RTC stride", `${fmt(data.rtcStrideSteps)} steps`, "half-overlap assumption, C / 2"]),
+        row(["RTC lookahead", fmtSeconds(data.rtcLookahead), "(C / 2) / f"]),
+        row(["T_obs pipeline + T_infer + T_action pipeline + jitter", fmtSeconds(data.rtcCriticalPath), timingStatus(data.rtcCriticalPath, data.rtcLookahead)]),
+        row(["T_obs / T_infer / T_action / jitter", `${fmtSeconds(input.obsP99)} / ${fmtSeconds(input.inferP99)} / ${fmtSeconds(input.actionP99)} / ${fmtSeconds(input.jitterP99)}`, "serial p99 latency components"])
+      ]);
+    }
+
+    function renderReplay(input, data) {
+      const active = input.replayUnit;
+      setRows("replayTable", [
+        row([
+          "Step-level",
+          fmt(data.horizonsPerSec),
+          fmtInt(data.stepEntriesPerHorizon),
+          fmt(data.stepEntriesPerSec),
+          `${fmt(input.SStep)} MB`,
+          fmtMBps(data.stepReplayMBps),
+          fmtGbps(data.stepReplayMBps * 8 / 1000),
+          fmtInt(data.representedSteps),
+          fmt(data.stepRepresentedPerMB),
+        ], active === "step" ? "active-row" : ""),
+        row([
+          "Chunk-level",
+          fmt(data.horizonsPerSec),
+          fmtInt(data.chunkEntriesPerHorizon),
+          fmt(data.chunkEntriesPerSec),
+          `${fmt(input.SChunk)} MB`,
+          fmtMBps(data.chunkReplayMBps),
+          fmtGbps(data.chunkReplayMBps * 8 / 1000),
+          fmtInt(data.representedSteps),
+          fmt(data.chunkRepresentedPerMB),
+        ], active === "chunk" ? "active-row" : "")
+      ]);
+    }
+
+    function renderFanout(input, data) {
+      const nodeReduction = data.directNoPipelineSec / data.nodeNoPipelineSec;
+      const optimalReduction = data.directNoPipelineSec / data.optimalNoPipelineSec;
+      setRows("fanoutTable", [
+        row([
+          "Direct",
+          fmtGB(data.directBytesGB),
+          `${fmtGB(input.W)} / rollout GPU`,
+          fmtSeconds(data.directCrossSec),
+          "N/A",
+          "N/A",
+          "N/A",
+          "0 s",
+          fmtSeconds(data.directNoPipelineSec),
+          fmtSeconds(data.directPipelinedSec),
+          "1.0x"
+        ], input.weightPath === "direct" ? "active-row" : ""),
+        row([
+          "Node fanout",
+          fmtGB(data.nodeScatterBytesGB),
+          `${fmtGBRange(data.nodeShardMinGB, data.nodeShardMaxGB)} / active GPU`,
+          fmtSeconds(data.nodeCrossSec),
+          "N/A",
+          "N/A",
+          `${fmtGB(data.rolloutIntraSendRecvPerGpuGB)} send+recv`,
+          fmtSeconds(data.rolloutIntraSec),
+          fmtSeconds(data.nodeNoPipelineSec),
+          fmtSeconds(data.nodePipelinedSec),
+          `${nodeReduction.toFixed(1)}x`
+        ], input.weightPath === "node" ? "active-row" : ""),
+        row([
+          "Hierarchical",
+          fmtGB(data.optimalCrossBytesGB),
+          `${fmtGB(data.optimalCrossBytesGB / data.Mrollout)} / rollout node`,
+          fmtSeconds(data.optimalCrossSec),
+          `${fmtGB(data.optimalRolloutInterBytesGB)} send+recv`,
+          fmtSeconds(data.optimalRolloutInterSec),
+          `${fmtGB(data.rolloutIntraSendRecvPerGpuGB)} send+recv`,
+          fmtSeconds(data.rolloutIntraSec),
+          fmtSeconds(data.optimalNoPipelineSec),
+          fmtSeconds(data.optimalPipelinedSec),
+          `${optimalReduction.toFixed(1)}x`
+        ], input.weightPath === "optimal" ? "active-row" : "")
+      ]);
+    }
+
+    function weightPathSpecs(data) {
+      return [
+        {
+          key: "direct",
+          label: "Direct",
+          color: "#2563eb",
+          crossBytesGB: data.directBytesGB,
+          interBytesGB: 0,
+          interSec: 0,
+          intraBytesGB: 0,
+          intraSec: 0
+        },
+        {
+          key: "node",
+          label: "Node fanout",
+          color: "#0f8a52",
+          crossBytesGB: data.nodeScatterBytesGB,
+          interBytesGB: 0,
+          interSec: 0,
+          intraBytesGB: data.rolloutIntraSendRecvPerGpuGB,
+          intraSec: data.rolloutIntraSec
+        },
+        {
+          key: "optimal",
+          label: "Hierarchical",
+          color: "#a46400",
+          crossBytesGB: data.optimalCrossBytesGB,
+          interBytesGB: data.optimalRolloutInterBytesGB,
+          interSec: data.optimalRolloutInterSec,
+          intraBytesGB: data.rolloutIntraSendRecvPerGpuGB,
+          intraSec: data.rolloutIntraSec
+        }
+      ];
+    }
+
+    function pathCrossSec(path, bCrossGbps) {
+      return path.crossBytesGB * 8 / Math.max(bCrossGbps, 0.001);
+    }
+
+    function pathPipelinedSec(path, bCrossGbps) {
+      return Math.max(pathCrossSec(path, bCrossGbps), path.interSec, path.intraSec);
+    }
+
+    function pathSumSec(path, bCrossGbps) {
+      return pathCrossSec(path, bCrossGbps) + path.interSec + path.intraSec;
+    }
+
+    function requiredCrossForDeadline(path, deadlineSec) {
+      const fixedSec = path.interSec + path.intraSec;
+      const crossWindow = deadlineSec - fixedSec;
+      if (crossWindow <= 0) return Infinity;
+      return path.crossBytesGB * 8 / crossWindow;
+    }
+
+    function satisfiedLag(path, input) {
+      const currentSec = pathSumSec(path, input.BCross);
+      const lag = LAGS.find((candidate) => currentSec <= candidate * input.updatePeriod);
+      return lag ? `L=${lag}` : "L>8";
+    }
+
+    function renderDeadlineStrip(input) {
+      const deadlines = LAGS.map((lag) => `L=${lag}: ${fmtSeconds(lag * input.updatePeriod)}`).join(", ");
+      $("deadlineStrip").innerHTML = [
+        `<strong>Fixed:</strong> B_cross=${fmtGbps(input.BCross)}, B_rollout_inter=${fmtGbps(input.BRolloutInter)}/node, B_rollout_intra=${fmtGBps(input.BRolloutIntra)}`,
+        `<strong>Deadlines:</strong> ${deadlines}`,
+        `<strong>Reference:</strong> SoL ref=sum(cross, rollout inter, rollout intra); pipelined LB=max(...)`
+      ].join(" | ");
+    }
+
+    function renderLag(input, data) {
+      renderDeadlineStrip(input);
+      const rows = weightPathSpecs(data).map((path) => {
+        const crossSec = pathCrossSec(path, input.BCross);
+        const pipelinedSec = pathPipelinedSec(path, input.BCross);
+        const sumSec = pathSumSec(path, input.BCross);
+        const selectedDeadline = input.L * input.updatePeriod;
+        const requiredByLag = LAGS.map((lag) => fmtRequiredGbps(requiredCrossForDeadline(path, lag * input.updatePeriod)));
+        return row([
+          path.label,
+          fmtGB(path.crossBytesGB),
+          fmtSeconds(crossSec),
+          path.interBytesGB > 0 ? `${fmtGB(path.interBytesGB)} send+recv` : "N/A",
+          path.interBytesGB > 0 ? fmtSeconds(path.interSec) : "N/A",
+          path.intraBytesGB > 0 ? `${fmtGB(path.intraBytesGB)} send+recv` : "N/A",
+          path.intraBytesGB > 0 ? fmtSeconds(path.intraSec) : "N/A",
+          ...requiredByLag,
+          fmtSeconds(pipelinedSec),
+          fmtSeconds(sumSec),
+          satisfiedLag(path, input),
+          timingStatus(sumSec, selectedDeadline)
+        ], input.weightPath === path.key ? "active-row" : "");
+      });
+      setRows("lagTable", rows);
+      renderWeightSyncChart(input, data);
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
+
+    function chartBandwidthAtX(svgX, cfg) {
+      const ratio = clamp((svgX - cfg.pad.left) / cfg.plotW, 0, 1);
+      return cfg.bMin * Math.pow(cfg.bMax / cfg.bMin, ratio);
+    }
+
+    function chartSvgX(event, svg, width) {
+      const rect = svg.getBoundingClientRect();
+      if (!rect.width) return 0;
+      return (event.clientX - rect.left) / rect.width * width;
+    }
+
+    function setWeightChartRange(nextMin, nextMax) {
+      const min = Math.max(0.001, Math.min(nextMin, nextMax));
+      const max = Math.max(min * 1.2, Math.max(nextMin, nextMax));
+      weightChartRange = { bMin: min, bMax: max };
+    }
+
+    function floorToPower10(value) {
+      return Math.pow(10, Math.floor(Math.log10(Math.max(value, 1e-9))));
+    }
+
+    function ceilToPower10(value) {
+      return Math.pow(10, Math.ceil(Math.log10(Math.max(value, 1e-9))));
+    }
+
+    function logTicks(minValue, maxValue) {
+      const ticks = [];
+      const minExp = Math.ceil(Math.log10(minValue));
+      const maxExp = Math.floor(Math.log10(maxValue));
+      for (let exp = minExp; exp <= maxExp; exp += 1) {
+        ticks.push(Math.pow(10, exp));
+      }
+      if (!ticks.length) ticks.push(Math.sqrt(minValue * maxValue));
+      return ticks;
+    }
+
+    function renderWeightSyncChart(input, data) {
+      const paths = weightPathSpecs(data);
+      const selectedDeadline = input.L * input.updatePeriod;
+      const autoBMax = Math.max(
+        input.BCross * 2,
+        ...paths.map((path) => requiredCrossForDeadline(path, input.updatePeriod)).filter(Number.isFinite),
+        100
+      );
+      const autoBMin = Math.max(1, autoBMax / 100);
+      const bMin = weightChartRange ? Math.max(0.001, weightChartRange.bMin) : autoBMin;
+      const bMax = weightChartRange ? Math.max(weightChartRange.bMax, bMin * 1.2) : autoBMax;
+      const sampleCount = 100;
+      const sampledTimes = [];
+      paths.forEach((path) => {
+        for (let index = 0; index < sampleCount; index += 1) {
+          const t = index / (sampleCount - 1);
+          const b = bMin * Math.pow(bMax / bMin, t);
+          sampledTimes.push(pathSumSec(path, b), pathPipelinedSec(path, b));
+        }
+      });
+      const positiveTimes = sampledTimes
+        .concat(LAGS.map((lag) => lag * input.updatePeriod), selectedDeadline)
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const yMin = floorToPower10(Math.min(...positiveTimes) / 1.15);
+      const yMax = ceilToPower10(Math.max(...positiveTimes) * 1.15);
+      const width = 900;
+      const height = 260;
+      const pad = { left: 58, right: 18, top: 14, bottom: 40 };
+      const plotW = width - pad.left - pad.right;
+      const plotH = height - pad.top - pad.bottom;
+      const logMin = Math.log10(bMin);
+      const logMax = Math.log10(bMax);
+      const logYMin = Math.log10(yMin);
+      const logYMax = Math.log10(yMax);
+      const x = (b) => pad.left + (Math.log10(b) - logMin) / (logMax - logMin) * plotW;
+      const y = (sec) => pad.top + (1 - (Math.log10(clamp(sec, yMin, yMax)) - logYMin) / (logYMax - logYMin)) * plotH;
+      const lineFor = (path) => Array.from({ length: sampleCount }, (_, index) => {
+        const t = index / (sampleCount - 1);
+        const b = bMin * Math.pow(bMax / bMin, t);
+        return `${x(b).toFixed(1)},${y(pathSumSec(path, b)).toFixed(1)}`;
+      }).join(" ");
+      const xTicks = [bMin, Math.sqrt(bMin * bMax), bMax];
+      const yTicks = logTicks(yMin, yMax);
+      const deadlineLines = LAGS.map((lag) => {
+        const yy = y(lag * input.updatePeriod);
+        return `<line x1="${pad.left}" y1="${yy}" x2="${width - pad.right}" y2="${yy}" stroke="#d0d7e2" stroke-dasharray="4 5"/><text x="${width - pad.right - 4}" y="${yy - 4}" text-anchor="end" fill="#657085" font-size="11">L=${lag}</text>`;
+      }).join("");
+      const currentX = x(Math.min(Math.max(input.BCross, bMin), bMax));
+      const pathLines = paths.map((path) => (
+        `<polyline fill="none" stroke="${path.color}" stroke-width="2.5" points="${lineFor(path)}"/>`
+      )).join("");
+      const legend = paths.map((path) => (
+        `<span class="legend-item"><span class="legend-swatch" style="background:${path.color}"></span>${path.label}</span>`
+      )).join("");
+      $("weightSyncChart").innerHTML = [
+        `<div class="chart-actions"><span>Lines show SoL ref (sum). Wheel zoom, drag pan, Shift+drag select, hover values, double-click reset.</span><button type="button" class="chart-reset" id="chartReset">Reset</button></div>`,
+        `<svg id="weightSyncSvg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Weight sync sum reference by cross-cluster bandwidth">`,
+        `<rect x="0" y="0" width="${width}" height="${height}" fill="#fff"/>`,
+        yTicks.map((tick) => `<line x1="${pad.left}" y1="${y(tick)}" x2="${width - pad.right}" y2="${y(tick)}" stroke="#edf1f6"/><text x="${pad.left - 8}" y="${y(tick) + 4}" text-anchor="end" fill="#657085" font-size="11">${fmtSeconds(tick)}</text>`).join(""),
+        xTicks.map((tick) => `<line x1="${x(tick)}" y1="${pad.top}" x2="${x(tick)}" y2="${height - pad.bottom}" stroke="#edf1f6"/><text x="${x(tick)}" y="${height - 20}" text-anchor="middle" fill="#657085" font-size="11">${fmtGbps(tick)}</text>`).join(""),
+        deadlineLines,
+        `<line x1="${currentX}" y1="${pad.top}" x2="${currentX}" y2="${height - pad.bottom}" stroke="#172033" stroke-dasharray="5 5"/>`,
+        `<text x="${currentX + 5}" y="${pad.top + 13}" fill="#172033" font-size="11">current B_cross</text>`,
+        pathLines,
+        `<rect id="chartSelection" x="0" y="${pad.top}" width="0" height="${plotH}" fill="#2563eb" opacity="0.12" visibility="hidden"/>`,
+        `<rect x="${pad.left}" y="${pad.top}" width="${plotW}" height="${plotH}" fill="transparent"/>`,
+        `<line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" stroke="#9aa4b2"/>`,
+        `<line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" stroke="#9aa4b2"/>`,
+        `<text x="${width / 2}" y="${height - 4}" text-anchor="middle" fill="#344054" font-size="12">B_cross bandwidth (Gbps, log scale)</text>`,
+        `<text transform="translate(14 ${height / 2}) rotate(-90)" text-anchor="middle" fill="#344054" font-size="12">SoL ref time (sum, log10)</text>`,
+        `</svg>`,
+        `<div class="chart-hover" id="weightSyncHover">Hover over plot for values.</div>`,
+        `<div class="chart-legend">${legend}</div>`
+      ].join("");
+      bindWeightChartInteractions(input, data, { width, pad, plotW, bMin, bMax });
+    }
+
+    function bindWeightChartInteractions(input, data, cfg) {
+      const svg = $("weightSyncSvg");
+      const hover = $("weightSyncHover");
+      const reset = $("chartReset");
+      const selection = $("chartSelection");
+      if (!svg || !hover) return;
+      const paths = weightPathSpecs(data);
+      let dragStartX = null;
+      let dragMode = null;
+      let dragStartRange = null;
+
+      function hoverAt(event) {
+        const svgX = chartSvgX(event, svg, cfg.width);
+        if (svgX < cfg.pad.left || svgX > cfg.width - cfg.pad.right) {
+          hover.textContent = "Hover over plot for values.";
+          return;
+        }
+        const b = chartBandwidthAtX(svgX, cfg);
+        const values = paths.map((path) => {
+          const sumSec = pathSumSec(path, b);
+          const lbSec = pathPipelinedSec(path, b);
+          return `${path.label}: ${fmtSeconds(sumSec)} (LB ${fmtSeconds(lbSec)})`;
+        }).join(" | ");
+        hover.innerHTML = `<strong>B_cross=${fmtGbps(b)}</strong> | ${values}`;
+      }
+
+      function setSelection(startX, endX) {
+        if (!selection) return;
+        const left = clamp(Math.min(startX, endX), cfg.pad.left, cfg.width - cfg.pad.right);
+        const right = clamp(Math.max(startX, endX), cfg.pad.left, cfg.width - cfg.pad.right);
+        selection.setAttribute("x", left);
+        selection.setAttribute("width", right - left);
+        selection.setAttribute("visibility", "visible");
+      }
+
+      function clearSelection() {
+        if (selection) selection.setAttribute("visibility", "hidden");
+      }
+
+      svg.addEventListener("mousemove", (event) => {
+        hoverAt(event);
+        if (dragStartX !== null && dragMode === "zoom") setSelection(dragStartX, chartSvgX(event, svg, cfg.width));
+      });
+      svg.addEventListener("mouseleave", () => {
+        hover.textContent = "Hover over plot for values.";
+        clearSelection();
+        dragStartX = null;
+        dragMode = null;
+        dragStartRange = null;
+      });
+      svg.addEventListener("mousedown", (event) => {
+        const svgX = chartSvgX(event, svg, cfg.width);
+        if (svgX >= cfg.pad.left && svgX <= cfg.width - cfg.pad.right) {
+          if (event.preventDefault) event.preventDefault();
+          dragStartX = svgX;
+          dragMode = event.shiftKey ? "zoom" : "pan";
+          dragStartRange = { bMin: cfg.bMin, bMax: cfg.bMax };
+        }
+      });
+      svg.addEventListener("mouseup", (event) => {
+        if (dragStartX === null) return;
+        const endX = chartSvgX(event, svg, cfg.width);
+        const span = Math.abs(endX - dragStartX);
+        clearSelection();
+        if (dragMode === "zoom" && span > 12) {
+          const nextMin = chartBandwidthAtX(Math.min(dragStartX, endX), cfg);
+          const nextMax = chartBandwidthAtX(Math.max(dragStartX, endX), cfg);
+          setWeightChartRange(nextMin, nextMax);
+          renderWeightSyncChart(input, data);
+        } else if (dragMode === "pan" && span > 4 && dragStartRange) {
+          const delta = endX - dragStartX;
+          const startLogMin = Math.log10(dragStartRange.bMin);
+          const startLogMax = Math.log10(dragStartRange.bMax);
+          const logSpan = startLogMax - startLogMin;
+          const shift = -delta / cfg.plotW * logSpan;
+          setWeightChartRange(Math.pow(10, startLogMin + shift), Math.pow(10, startLogMax + shift));
+          renderWeightSyncChart(input, data);
+        }
+        dragStartX = null;
+        dragMode = null;
+        dragStartRange = null;
+      });
+      svg.addEventListener("dblclick", () => {
+        weightChartRange = null;
+        renderWeightSyncChart(input, data);
+      });
+      svg.addEventListener("wheel", (event) => {
+        if (event.preventDefault) event.preventDefault();
+        const svgX = chartSvgX(event, svg, cfg.width);
+        const centerB = chartBandwidthAtX(svgX, cfg);
+        const zoom = event.deltaY > 0 ? 1.25 : 0.8;
+        const logMin = Math.log10(cfg.bMin);
+        const logMax = Math.log10(cfg.bMax);
+        const centerLog = Math.log10(centerB);
+        const nextSpan = clamp((logMax - logMin) * zoom, Math.log10(1.4), Math.log10(10000));
+        const leftShare = clamp((centerLog - logMin) / (logMax - logMin), 0.05, 0.95);
+        const nextMin = Math.pow(10, centerLog - nextSpan * leftShare);
+        const nextMax = Math.pow(10, centerLog + nextSpan * (1 - leftShare));
+        setWeightChartRange(nextMin, nextMax);
+        renderWeightSyncChart(input, data);
+      });
+      if (reset) {
+        reset.addEventListener("click", () => {
+          weightChartRange = null;
+          renderWeightSyncChart(input, data);
+        });
+      }
+    }
+
+    function renderNetwork(input, data) {
+      const replayStatus = capacityStatus(data.replayGbps, input.BCross);
+      const weightStatus = capacityStatus(data.weightRequiredGbps, input.BCross);
+      setRows("networkTable", [
+        row([
+          "Cross cluster",
+          "<code>B_cross</code>",
+          "aggregate per direction between train and rollout clusters",
+          fmtGbps(input.BCross),
+          "Replay, weight sync",
+          `${replayStatus} replay<br>${weightStatus} weight`
+        ]),
+        row([
+          "Rollout cluster inter",
+          "<code>B_rollout_inter</code>",
+          "per-node bidirectional injection bandwidth between rollout physical nodes",
+          `${fmtGbps(input.BRolloutInter)}/node`,
+          "Hierarchical weight sync",
+          statusPill("Input", "neutral")
+        ]),
+        row([
+          "Rollout cluster intra",
+          "<code>B_rollout_intra</code>",
+          "per-GPU bidirectional fabric inside one rollout node",
+          fmtGBps(input.BRolloutIntra),
+          "Node fanout, Hierarchical",
+          statusPill("Input", "neutral")
+        ]),
+        row([
+          "Train cluster inter",
+          "<code>B_train_inter</code>",
+          "aggregate training network between train physical nodes",
+          "TBD",
+          "Train model TBD",
+          statusPill("TBD", "neutral")
+        ]),
+        row([
+          "Train cluster intra",
+          "<code>B_train_intra</code>",
+          "local GPU fabric inside one train node",
+          "TBD",
+          "Train model TBD",
+          statusPill("TBD", "neutral")
+        ])
+      ]);
+    }
+
+    function renderTrainBudget(input, data) {
+      setRows("trainBudgetTable", [
+        row(["Update every K horizons", fmt(input.K), "input K"]),
+        row(["Horizon duration", fmtSeconds(input.H / input.f), "H / f"]),
+        row(["Weight update period", fmtSeconds(input.updatePeriod), "K * H / f"]),
+        row(["Allowed policy lag", `L=${fmt(input.L)}`, "input L"]),
+        row(["Version deadline", fmtSeconds(data.policyDeadline), "L * K * H / f"]),
+        row(["Weight sync SoL ref", fmtSeconds(data.weightSyncRefSec), "selected Weight Sync path, sum reference"]),
+        row(["T_train / T_export / T_apply", "N/A", "not modeled in v1"])
+      ]);
+    }
+
+    function render() {
+      const input = readInputs();
+      const data = compute(input);
+      $("derivedStepPayload").textContent = `${fmt(input.derivedStep)} MB`;
+      renderSummary(input, data);
+      renderArchitecture(input, data);
+      renderCluster(input, data);
+      renderRtc(input, data);
+      renderReplay(input, data);
+      renderFanout(input, data);
+      renderLag(input, data);
+      renderNetwork(input, data);
+      renderTrainBudget(input, data);
+    }
+
+    document.querySelectorAll("input, select").forEach((el) => {
+      el.addEventListener("input", render);
+      el.addEventListener("change", render);
+    });
+
+    document.querySelectorAll("[data-tip]").forEach((el) => {
+      el.addEventListener("mouseenter", () => showTooltip(el));
+      el.addEventListener("mousemove", () => positionTooltip(el));
+      el.addEventListener("mouseleave", () => hideTooltip(el));
+      el.addEventListener("focusin", () => showTooltip(el));
+      el.addEventListener("focusout", () => hideTooltip(el));
+    });
+
+    window.addEventListener("scroll", () => positionTooltip(activeTooltipTarget), true);
+    window.addEventListener("resize", () => positionTooltip(activeTooltipTarget));
+
+    render();
+  </script>
+</body>
+</html>
