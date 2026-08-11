@@ -244,9 +244,9 @@
         <summary>Weight Sync Payload</summary>
         <div class="group-body">
           <div class="field"><div class="label-line" data-tip="Select the policy model to publish."><label for="modelSel">Policy model</label></div><select id="modelSel"><option value="pi05" selected>Pi-0.5 — 3.6 B</option><option value="groot_n16">GR00T N1.6 — 3.5 B</option><option value="custom">Custom</option></select></div>
-          <div class="field"><div class="label-line" data-tip="Select which parameters cross the cluster boundary."><label for="syncScope">Sync scope</label></div><select id="syncScope"><option value="full" selected>Full weights</option><option value="action">Action head only</option></select></div>
+          <div class="field"><div class="label-line" data-tip="Select which parameters cross the cluster boundary. For Pi-0.5, Action head only is the action-specific projection stack."><label for="syncScope">Sync scope</label></div><select id="syncScope"><option value="full">Full weights</option><option value="action" selected>Action head only</option></select></div>
           <div class="field"><div class="label-line" data-tip="Select the bytes published for each parameter."><label for="publishDtype">Publish dtype</label></div><select id="publishDtype"><option value="bf16" selected>BF16 — 2 B/param</option><option value="fp32">FP32 — 4 B/param</option><option value="fp8">FP8 — 1 B/param</option></select></div>
-          <div class="field"><div class="label-line" data-tip="This payload is derived unless Custom is selected."><label for="weightPayload">W — sync payload (GB)</label></div><input id="weightPayload" type="number" min="0.1" step="0.1" value="7.2"></div>
+          <div class="field"><div class="label-line" data-tip="This payload is derived unless Custom is selected."><label for="weightPayload">W — sync payload (GB)</label></div><input id="weightPayload" type="number" min="0.0001" step="0.0001" value="0.0043"></div>
         </div>
       </details>
       <details open>
@@ -389,7 +389,7 @@
   <script>
     /* Resource-bill model. Measured values are defaults only; formulas stay line-rate SoL. */
     const MODELS = {
-      pi05:      { label: "Pi-0.5",     full: 3.6168, action: 0.6935, weightClass: "measured" },
+      pi05:      { label: "Pi-0.5",     full: 3.6168, action: 0.002165792, weightClass: "measured" },
       groot_n16: { label: "GR00T N1.6", full: 3.5000, action: 1.6000, weightClass: "derived" }
     };
     const DTYPE_BYTES = { bf16: 2, fp32: 4, fp8: 1 };
@@ -422,7 +422,10 @@
       const custom = selectValue("modelSel") === "custom";
       const field = $("weightPayload");
       field.readOnly = !custom;
-      if (!custom) field.value = autoWeightGB().toFixed(1);
+      if (!custom) {
+        const weightGB = autoWeightGB();
+        field.value = weightGB >= 1 ? weightGB.toFixed(1) : weightGB >= 0.01 ? weightGB.toFixed(3) : weightGB.toFixed(4);
+      }
     }
 
     function transportMs(payload, robotGbps, intraGBps) {
@@ -443,7 +446,7 @@
       const payload = derivedPayload();
       const autoW = autoWeightGB();
       const W = autoW === null
-        ? Math.max(numberValue("weightPayload", 7.2), 0.1)
+        ? Math.max(numberValue("weightPayload", 0.0043), 0.0001)
         : autoW;
       const gb = Math.max(numberValue("globalBatch", 256), 1);
       const ue = Math.max(numberValue("updateEpoch", 4), 1);
@@ -588,7 +591,11 @@
     }
 
     function fmtGB(value) {
-      return `${fmt(value)} GB`;
+      if (!Number.isFinite(value)) return "infeasible";
+      const abs = Math.abs(value);
+      if (abs >= 1) return `${fmt(value)} GB`;
+      if (abs >= 0.001) return `${fmt(value * 1000)} MB`;
+      return `${fmt(value * 1e6)} KB`;
     }
 
     function fmtMBps(value) {
@@ -597,7 +604,11 @@
 
     function fmtGbps(value) {
       if (!Number.isFinite(value)) return "infeasible";
-      return value >= 1000 ? `${fmt(value / 1000)} Tbps` : `${fmt(value)} Gbps`;
+      const abs = Math.abs(value);
+      if (abs >= 1000) return `${fmt(value / 1000)} Tbps`;
+      if (abs >= 0.1) return `${fmt(value)} Gbps`;
+      if (abs >= 0.001) return `${fmt(value * 1000)} Mbps`;
+      return `${fmt(value * 1e6)} Kbps`;
     }
 
     function fmtGBps(value) {
@@ -807,9 +818,12 @@
     function renderWeightChart(input, data) {
       const width = 900, height = 280;
       const pad = { left: 64, right: 24, top: 22, bottom: 46 };
-      const bMin = 1, bMax = 10000, yMin = 0.01;
+      const bMin = 1, bMax = 10000;
       const directAt = (bandwidth) => (data.directCrossBytesGB * 8) / bandwidth;
       const hierarchicalAt = (bandwidth) => Math.max((input.W * 8) / bandwidth, data.rolloutInterSec, data.rolloutIntraSec);
+      const lowerCandidates = [directAt(bMax), hierarchicalAt(bMax), data.policyDeadline]
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const yMin = Math.pow(10, Math.floor(Math.log10(Math.min(...lowerCandidates))));
       const candidates = [directAt(bMin), hierarchicalAt(bMin), data.policyDeadline, 1].filter(Number.isFinite);
       const yMax = Math.max(...candidates, yMin * 10);
       const plotW = width - pad.left - pad.right, plotH = height - pad.top - pad.bottom;
