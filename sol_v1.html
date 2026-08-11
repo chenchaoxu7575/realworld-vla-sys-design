@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Real-World RL Resource Calculator</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --panel: #ffffff;
+      --ink: #000000;
+      --muted: #5e5e5e;
+      --line: #cdcdcd;
+      --soft: #f5f5f5;
+      --green: #76b900;
+      --good: #008564;
+      --good-bg: #e8f5f1;
+      --warn: #8a6100;
+      --warn-bg: #fff6d8;
+      --bad: #a32020;
+      --bad-bg: #fbecec;
+      --blue: #0071c5;
+      --shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "NVIDIA Sans", Arial, sans-serif;
+      line-height: 1.4;
+    }
+    header {
+      padding: 24px 30px 18px;
+      border-top: 6px solid var(--green);
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+    .subtitle { max-width: 980px; margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+    h2 { margin: 0 0 12px; font-size: 19px; }
+    h3 { margin: 0 0 9px; font-size: 14px; }
+    main {
+      display: grid;
+      grid-template-columns: minmax(310px, 370px) minmax(0, 1fr);
+      gap: 20px;
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    aside,
+    section.card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    aside {
+      position: sticky;
+      top: 16px;
+      height: calc(100vh - 32px);
+      overflow: auto;
+      padding: 13px;
+    }
+    details { border: 1px solid var(--line); margin-bottom: 9px; background: #fff; }
+    details[open] { background: var(--soft); }
+    summary { cursor: pointer; padding: 11px; font-weight: 700; }
+    .group-body { display: grid; gap: 9px; padding: 0 11px 11px; }
+    .field { display: grid; gap: 4px; }
+    .label-line { width: fit-content; max-width: 100%; cursor: help; }
+    label { color: var(--muted); font-size: 12px; font-weight: 700; cursor: help; }
+    input,
+    select {
+      width: 100%;
+      min-height: 38px;
+      padding: 8px 9px;
+      border: 1px solid #8c8c8c;
+      border-radius: 0;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+    }
+    input:focus,
+    select:focus,
+    [data-tip]:focus { outline: 3px solid rgba(118, 185, 0, 0.3); outline-offset: 1px; }
+    input[readonly] { background: #e8e8e8; color: #3d3d3d; }
+    .toggle-line { display: flex; align-items: center; gap: 8px; color: var(--ink); cursor: pointer; }
+    .toggle-line input { width: 18px; min-height: 18px; margin: 0; accent-color: var(--green); }
+    .derived-box { padding: 9px; border-left: 4px solid var(--green); background: #fff; font-size: 12px; }
+    .derived-box strong { color: var(--ink); }
+    .content { display: grid; gap: 15px; min-width: 0; }
+    section.card { padding: 16px; }
+    .section-label {
+      margin: 10px 2px -2px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .resource-bill { border-left: 6px solid var(--green) !important; }
+    .bill-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .bill-block { min-width: 0; padding-top: 9px; border-top: 3px solid var(--green); }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .metric { min-width: 0; padding: 10px; border: 1px solid var(--line); background: #fff; }
+    .metric .label { color: var(--muted); font-size: 11px; font-weight: 700; }
+    .metric .value { margin-top: 4px; color: var(--green); font-size: 22px; font-weight: 800; overflow-wrap: anywhere; }
+    .metric .sub { margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .metric.state-warn { background: var(--warn-bg); border-color: #d7a400; }
+    .metric.state-warn .value { color: var(--warn); }
+    .metric.state-bad { background: var(--bad-bg); border-color: var(--bad); }
+    .metric.state-bad .value { color: var(--bad); }
+    .architecture-flow {
+      display: grid;
+      grid-template-columns: minmax(145px, .8fr) minmax(115px, .65fr) minmax(210px, 1.1fr) minmax(190px, 1fr) minmax(155px, .85fr);
+      align-items: center;
+      gap: 10px;
+    }
+    .arch-zone {
+      min-height: 148px;
+      padding: 14px;
+      border: 1px solid var(--ink);
+      background: var(--soft);
+      display: grid;
+      align-content: center;
+      gap: 4px;
+      text-align: center;
+    }
+    .arch-zone-rollout { border-color: var(--green); box-shadow: inset 6px 0 0 var(--green); }
+    .arch-kicker { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+    .arch-stat { font-size: 24px; font-weight: 800; }
+    .arch-unit { color: var(--muted); font-size: 12px; }
+    .arch-fabrics { display: grid; gap: 3px; margin-top: 8px; font-size: 11px; font-weight: 700; }
+    .arch-arrow { display: grid; gap: 4px; text-align: center; color: var(--muted); font-size: 11px; }
+    .arch-arrow::before { content: ""; order: 2; width: 100%; height: 3px; background: var(--green); }
+    .arch-arrow strong { order: 1; color: var(--ink); }
+    .arch-arrow span:first-child { order: 0; }
+    .arch-arrow span:last-child { order: 3; }
+    .status { display: inline-flex; align-items: center; justify-content: center; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+    .status.good { color: var(--good); background: var(--good-bg); }
+    .status.warn { color: var(--warn); background: var(--warn-bg); }
+    .status.bad { color: var(--bad); background: var(--bad-bg); }
+    .status.neutral { color: #3d3d3d; background: #e8e8e8; }
+    .heading-status { margin-left: 8px; vertical-align: 2px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); }
+    table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 12px; }
+    th,
+    td { padding: 9px 10px; border-bottom: 1px solid #e6e6e6; text-align: left; vertical-align: top; }
+    thead th { background: #ededed; color: #333; font-weight: 800; cursor: help; }
+    tbody th { font-weight: 700; background: #fafafa; }
+    tbody tr:last-child th,
+    tbody tr:last-child td { border-bottom: 0; }
+    .active-row th,
+    .active-row td { background: #f0f8e5; }
+    code { font-family: Consolas, monospace; }
+    .chart-panel { margin: 12px 0; padding: 10px; border: 1px solid var(--line); background: #fff; }
+    .chart-title { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+    .chart-panel svg { display: block; width: 100%; height: auto; }
+    .chart-panel text { fill: var(--muted); font-family: "NVIDIA Sans", Arial, sans-serif; font-size: 11px; }
+    .chart-legend { display: flex; flex-wrap: wrap; gap: 10px 18px; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { display: inline-block; width: 20px; height: 3px; }
+    .swatch.direct { background: var(--blue); }
+    .swatch.hierarchical { background: var(--green); }
+    .tooltip-layer {
+      position: fixed;
+      z-index: 2147483647;
+      width: min(300px, 72vw);
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      background: #1a1a1a;
+      color: #fff;
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .tooltip-layer.visible { opacity: 1; }
+    @media (max-width: 1180px) {
+      main { grid-template-columns: 1fr; }
+      aside { position: static; height: auto; }
+      .bill-grid { grid-template-columns: 1fr; }
+      .architecture-flow { grid-template-columns: 1fr; }
+      .arch-zone { min-height: auto; }
+      .arch-arrow::before { width: 3px; height: 28px; margin: 0 auto; }
+    }
+    @media (max-width: 700px) {
+      header,
+      main { padding-left: 11px; padding-right: 11px; }
+      .summary-grid { grid-template-columns: 1fr; }
+      table { min-width: 560px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Real-World RL Resource Calculator</h1>
+    <p class="subtitle">Parameter-driven SOL tables for a large-scale real-robot async RL workload.</p>
+  </header>
+  <main>
+    <aside aria-label="Calculator inputs">
+      <details open>
+        <summary>Robot Fleet</summary>
+        <div class="group-body">
+          <div class="field"><div class="label-line" data-tip="Enter the number of physical robots to operate."><label for="robotCount">Robot fleet N_robot</label></div><input id="robotCount" type="number" min="1" step="1" value="100"></div>
+          <div class="field"><div class="label-line" data-tip="Select the robot control frequency."><label for="frequency">Control frequency f (Hz)</label></div><select id="frequency"><option value="30">30</option><option selected value="60">60</option><option value="90">90</option></select></div>
+        </div>
+      </details>
+      <details open>
+        <summary>Rollout — RTX PRO 5000</summary>
+        <div class="group-body">
+          <div class="field"><div class="label-line" data-tip="Enter the actions produced by each policy call."><label for="chunkLength">Action chunk length C</label></div><input id="chunkLength" type="number" min="1" step="1" value="50"></div>
+          <div class="field"><div class="label-line" data-tip="Enter the primitive steps in one trajectory."><label for="horizon">Trajectory horizon H</label></div><input id="horizon" type="number" min="1" step="1" value="100"></div>
+          <div class="field"><div class="label-line" data-tip="Enable asynchronous real-time action chunking."><label class="toggle-line" for="rtcEnabled"><input id="rtcEnabled" type="checkbox">RTC (Real Time Chunking)</label></div></div>
+          <div class="field"><div class="label-line" data-tip="Select the rollout GPUs installed in each node."><label for="rolloutGpusPerNode">GPUs per rollout node</label></div><select id="rolloutGpusPerNode"><option value="1">1</option><option value="2">2</option><option selected value="4">4</option><option value="8">8</option></select></div>
+          <div class="field"><div class="label-line" data-tip="Set the robots assigned to each rollout GPU."><label for="robotsPerRolloutGpu">Robots per rollout GPU</label></div><input id="robotsPerRolloutGpu" type="number" min="1" step="1" value="4"></div>
+          <div class="field"><div class="label-line" data-tip="Enter the wall time of one batch-one policy call."><label for="inferMs">T_infer at batch 1 (ms)</label></div><input id="inferMs" type="number" min="0.1" step="0.1" value="42"></div>
+          <div class="field"><div class="label-line" data-tip="Reserve this percentage of inference time for latency jitter."><label for="jitterPct">Inference jitter buffer (% of T_infer)</label></div><input id="jitterPct" type="number" min="0" step="1" value="30"></div>
+          <div class="field"><div class="label-line" data-tip="This budget equals T_infer multiplied by the jitter percentage."><label>Inference jitter budget</label></div><div class="derived-box" id="jitterShown">&mdash;</div></div>
+        </div>
+      </details>
+      <details open>
+        <summary>Training — on-policy algorithm</summary>
+        <div class="group-body">
+          <div class="field"><div class="label-line" data-tip="This input changes batch collection time, not GPU sizing."><label for="globalBatch">Global batch size (trajectories)</label></div><input id="globalBatch" type="number" min="1" step="1" value="256"></div>
+          <div class="field"><div class="label-line" data-tip="Enter the passes over each on-policy batch."><label for="updateEpoch">update_epoch</label></div><input id="updateEpoch" type="number" min="1" step="1" value="4"></div>
+          <div class="field"><div class="label-line" data-tip="Allow rollout workers to lag this many completed rollout durations behind the latest training weights."><label for="weightLag">Allowed weight lag (rollouts)</label></div><input id="weightLag" type="number" min="1" step="1" value="1"></div>
+          <div class="field"><div class="label-line" data-tip="Enter trajectories processed by one training GPU each second."><label for="trainTput">Train throughput (trajectories/s/GPU)</label></div><input id="trainTput" type="number" min="0.1" step="0.1" value="5"></div>
+          <div class="field"><div class="label-line" data-tip="Enter the training GPUs installed in each node."><label for="trainGpusPerNode">Train GPUs per node</label></div><input id="trainGpusPerNode" type="number" min="1" step="1" value="8"></div>
+        </div>
+      </details>
+      <details open>
+        <summary>Replay Payload</summary>
+        <div class="group-body">
+          <div class="field"><div class="label-line" data-tip="Set the camera views in this workload assumption."><label for="cameraViews">Camera views</label></div><input id="cameraViews" type="number" min="1" step="1" value="3"></div>
+          <div class="field"><div class="label-line" data-tip="Set the source image size in this workload assumption."><label for="resolution">Image resolution (px)</label></div><input id="resolution" type="number" min="1" step="1" value="224"></div>
+          <div class="field"><div class="label-line" data-tip="Enter the stored bytes for each colour channel."><label for="bytesPerChannel">Bytes per channel</label></div><input id="bytesPerChannel" type="number" min="0.1" step="0.1" value="1"></div>
+          <div class="field"><div class="label-line" data-tip="Enter how much compression shrinks each image."><label for="compressionRatio">Compression ratio</label></div><input id="compressionRatio" type="number" min="0.1" step="0.1" value="1"></div>
+          <div class="field"><div class="label-line" data-tip="Enter framing overhead above the image bytes."><label for="payloadOverhead">Framing overhead (%)</label></div><input id="payloadOverhead" type="number" min="0" step="1" value="10"></div>
+          <div class="derived-box" id="payloadDerived">&mdash;</div>
+        </div>
+      </details>
+      <details open>
+        <summary>Weight Sync Payload</summary>
+        <div class="group-body">
+          <div class="field"><div class="label-line" data-tip="Select the policy model to publish."><label for="modelSel">Policy model</label></div><select id="modelSel"><option value="pi05" selected>Pi-0.5 — 3.6 B</option><option value="groot_n16">GR00T N1.6 — 3.5 B</option><option value="custom">Custom</option></select></div>
+          <div class="field"><div class="label-line" data-tip="Select which parameters cross the cluster boundary."><label for="syncScope">Sync scope</label></div><select id="syncScope"><option value="full" selected>Full weights</option><option value="action">Action head only</option></select></div>
+          <div class="field"><div class="label-line" data-tip="Select the bytes published for each parameter."><label for="publishDtype">Publish dtype</label></div><select id="publishDtype"><option value="bf16" selected>BF16 — 2 B/param</option><option value="fp32">FP32 — 4 B/param</option><option value="fp8">FP8 — 1 B/param</option></select></div>
+          <div class="field"><div class="label-line" data-tip="This payload is derived unless Custom is selected."><label for="weightPayload">W — sync payload (GB)</label></div><input id="weightPayload" type="number" min="0.1" step="0.1" value="7.2"></div>
+        </div>
+      </details>
+      <details open>
+        <summary>Network — L0 to L3</summary>
+        <div class="group-body">
+          <div class="field"><div class="label-line" data-tip="Enter the line rate between each robot and rollout node."><label for="robotLinkBw">L0 robot link (Gbps / robot)</label></div><input id="robotLinkBw" type="number" min="0.1" step="1" value="10"></div>
+          <div class="field"><div class="label-line" data-tip="Enter the line rate between training and rollout clusters."><label for="crossBw">L1 cross-cluster (Gbps / direction)</label></div><input id="crossBw" type="number" min="0.1" step="1" value="400"></div>
+          <div class="field"><div class="label-line" data-tip="Enter the one-way line rate available to each rollout node."><label for="rolloutInterBw">L2 rollout inter-node (Gbps / node / direction)</label></div><input id="rolloutInterBw" type="number" min="0.1" step="1" value="400"></div>
+          <div class="field"><div class="label-line" data-tip="Enter the one-way PCIe bandwidth available to each rollout GPU."><label for="rolloutIntraBw">L3 PCIe (GB/s / GPU / direction)</label></div><input id="rolloutIntraBw" type="number" min="0.1" step="1" value="64"></div>
+          <div class="field"><div class="label-line" data-tip="Select how model weights synchronize to rollout GPUs."><label for="weightPath">Weight sync topology</label></div><select id="weightPath"><option value="optimal" selected>Hierarchical</option><option value="direct">Direct (P2P)</option></select></div>
+        </div>
+      </details>
+    </aside>
+
+    <div class="content">
+      <section class="card resource-bill">
+        <h2>Resource Bill</h2>
+        <div class="bill-grid">
+          <div class="bill-block"><h3 data-tip="These values size rollout compute capacity.">1 · Rollout</h3><div class="summary-grid" id="inferenceSummary"></div></div>
+          <div class="bill-block"><h3 data-tip="These values compare replay production with training throughput.">2 · Replay &amp; Training Balance</h3><div class="summary-grid" id="trainingSummary"></div></div>
+          <div class="bill-block"><h3 data-tip="These values validate the weight synchronization fabric.">3 · Weight Synchronization Fabric</h3><div class="summary-grid" id="networkSummary"></div></div>
+        </div>
+      </section>
+
+      <section class="card"><h2>System Architecture</h2><div id="architectureDiagram"></div></section>
+
+      <div class="section-label">Block 1 · Rollout</div>
+      <section class="card">
+        <h2>Rollout Capacity — RTX PRO 5000</h2>
+        <div class="table-wrap"><table><thead><tr>
+          <th data-tip="This column names each capacity component.">Metric</th>
+          <th data-tip="This column shows the capacity formula.">Formula</th>
+          <th data-tip="This column shows the calculated capacity.">Value</th>
+        </tr></thead><tbody id="batchTable"></tbody></table></div>
+        <div id="frequencySweep">
+          <h3 style="margin-top:14px">Frequency Sweep</h3>
+          <div class="table-wrap"><table><thead><tr>
+            <th data-tip="This column names each billed resource.">Resource</th>
+            <th data-tip="This column shows the result at 30 Hz.">30 Hz</th>
+            <th data-tip="This column shows the result at 60 Hz.">60 Hz</th>
+            <th data-tip="This column shows the result at 90 Hz.">90 Hz</th>
+          </tr></thead><tbody id="bmaxTable"></tbody></table></div>
+        </div>
+      </section>
+      <section class="card"><details><summary>RTC Timing</summary>
+        <div class="table-wrap"><table><thead><tr>
+          <th data-tip="This column names each timing component.">Metric</th>
+          <th data-tip="This column shows the calculated timing value.">Value</th>
+          <th data-tip="This column shows the formula or timing status.">Formula / status</th>
+        </tr></thead><tbody id="rtcTable"></tbody></table></div>
+      </details></section>
+
+      <div class="section-label">Block 2 · Replay &amp; Training Balance</div>
+      <section class="card">
+        <h2>Replay Buffer (FIFO)<span class="heading-status" id="replayStatus"></span></h2>
+        <div class="table-wrap"><table><thead><tr>
+          <th data-tip="This column names each replay quantity.">Metric</th>
+          <th data-tip="This column shows the calculated replay value.">Value</th>
+          <th data-tip="This column shows the replay formula or status.">Formula / status</th>
+        </tr></thead><tbody id="replayTable"></tbody></table></div>
+      </section>
+      <section class="card">
+        <h2>Train &harr; Rollout Balance</h2>
+        <div class="table-wrap"><table><thead><tr>
+          <th data-tip="This column names each training quantity.">Metric</th>
+          <th data-tip="This column shows the calculated training value.">Value</th>
+          <th data-tip="This column shows the training formula.">Formula</th>
+        </tr></thead><tbody id="balanceTable"></tbody></table></div>
+      </section>
+
+      <div class="section-label">Block 3 · Weight Synchronization Fabric</div>
+      <section class="card">
+        <h2>Network Bandwidth — L0 to L3</h2>
+        <div class="table-wrap"><table><thead><tr>
+          <th data-tip="This column names the network level.">Level</th>
+          <th data-tip="This column shows the bandwidth symbol.">Symbol</th>
+          <th data-tip="This column defines the bandwidth scope.">Scope</th>
+          <th data-tip="This column shows the configured line rate.">Available</th>
+          <th data-tip="This column shows what consumes the bandwidth.">Required by</th>
+          <th data-tip="This column validates the configured line rate.">Status</th>
+        </tr></thead><tbody id="networkTable"></tbody></table></div>
+      </section>
+      <section class="card">
+        <h2>Weight Sync</h2>
+        <div class="chart-panel" id="weightSyncChart"></div>
+        <div class="table-wrap"><table><thead><tr>
+          <th data-tip="This column names the synchronization topology.">Topology</th>
+          <th data-tip="This column shows bytes crossing L1.">L1 volume</th>
+          <th data-tip="This column shows the L1 transfer time.">L1 time</th>
+          <th data-tip="This column shows the L2 collective time.">L2 time</th>
+          <th data-tip="This column shows the L3 collective time.">L3 time</th>
+          <th data-tip="This column shows the maximum active stage time.">Effective time</th>
+          <th data-tip="This column shows required L1 bandwidth.">Required L1</th>
+        </tr></thead><tbody id="weightSyncTable"></tbody></table></div>
+      </section>
+      <section class="card">
+        <h2>Weight Sync Deadline</h2>
+        <div class="table-wrap"><table><thead><tr>
+          <th data-tip="This column names each deadline quantity.">Metric</th>
+          <th data-tip="This column shows the calculated deadline value.">Value</th>
+          <th data-tip="This column shows the deadline formula.">Formula</th>
+        </tr></thead><tbody id="trainBudgetTable"></tbody></table></div>
+      </section>
+      <section class="card"><details><summary>Cluster Sizing Detail</summary><div class="table-wrap"><table><thead><tr>
+        <th data-tip="This column names each cluster resource.">Resource</th>
+        <th data-tip="This column shows the calculated resource value.">Value</th>
+        <th data-tip="This column shows the sizing formula.">Formula</th>
+      </tr></thead><tbody id="clusterTable"></tbody></table></div></details></section>
+      <section class="card"><details><summary>Formulas</summary><div class="table-wrap"><table><thead><tr>
+        <th data-tip="This column names the calculated quantity.">Quantity</th>
+        <th data-tip="This column shows the speed-of-light formula.">Formula</th>
+      </tr></thead><tbody>
+        <tr><th scope="row" data-tip="This formula calculates the RTC scheduling window.">RTC window</th><td><code>C / (2f)</code></td></tr>
+        <tr><th scope="row" data-tip="This formula estimates non-RTC inference duty cycle.">GPU inference utilization (RTC off)</th><td><code>robots_per_GPU × T_infer / (C / f)</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates observation and action transport.">Transport obs/action</th><td><code>S_obs × 8 / B_L0 + S_obs / B_L3</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates the RTC density limit.">RTC max robots / GPU</th><td><code>floor(RTC window / [T_transport_obs_action + T_infer × (1 + jitter)])</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates required rollout GPUs.">Rollout GPUs</th><td><code>ceil(N_robot / configured robots per GPU)</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates required rollout nodes.">Rollout nodes</th><td><code>ceil(rollout GPUs / GPUs per node)</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates per-action replay bandwidth.">Replay bandwidth</th><td><code>N_robot × f × payload_per_action × 8 / 1000</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates fleet trajectory production.">Trajectory rate</th><td><code>N_robot × f / H</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates required training GPUs.">Train GPUs</th><td><code>ceil(trajectory rate × update_epoch / train throughput)</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates required training nodes.">Train nodes</th><td><code>ceil(train GPUs / train GPUs per node)</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates the synchronization deadline from the allowed weight lag.">Weight sync deadline</th><td><code>weight_lag × H / f</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates direct synchronization time.">Direct sync time</th><td><code>rollout GPUs × W × 8 / B_L1</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates the inter-node broadcast bound.">Hierarchical L2 time</th><td><code>W × 8 / B_L2 when M &gt; 1; otherwise 0</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates the per-GPU PCIe broadcast bound.">Hierarchical L3 time</th><td><code>W / B_L3 when r &gt; 1; otherwise 0</code></td></tr>
+        <tr><th scope="row" data-tip="This formula calculates effective hierarchical time.">Hierarchical sync time</th><td><code>max(T_L1, T_L2, T_L3)</code></td></tr>
+      </tbody></table></div></details></section>
+      <section class="card"><details><summary>Not modelled</summary><div class="group-body"><ul>
+        <li>Robot reset time and episode-boundary idle time.</li>
+        <li>Action, state, and text payload bandwidth.</li>
+        <li>Camera encode, decode, and model-preprocessing latency.</li>
+        <li>Network contention, congestion, retransmission, and topology oversubscription.</li>
+        <li>Training memory, optimizer communication, and checkpoint I/O.</li>
+        <li>Fault tolerance, redundancy, and capacity headroom.</li>
+      </ul></div></details></section>
+    </div>
+  </main>
+  <div id="tooltipLayer" class="tooltip-layer" role="tooltip"></div>
+  <script>
+    /* Resource-bill model. Measured values are defaults only; formulas stay line-rate SoL. */
+    const MODELS = {
+      pi05:      { label: "Pi-0.5",     full: 3.6168, action: 0.6935, weightClass: "measured" },
+      groot_n16: { label: "GR00T N1.6", full: 3.5000, action: 1.6000, weightClass: "derived" }
+    };
+    const DTYPE_BYTES = { bf16: 2, fp32: 4, fp8: 1 };
+    const FREQS = [30, 60, 90];
+
+    function derivedPayload() {
+      const views = Math.max(numberValue("cameraViews", 3), 1);
+      const res = Math.max(numberValue("resolution", 224), 1);
+      const bpc = Math.max(numberValue("bytesPerChannel", 1), 0.1);
+      const compression = Math.max(numberValue("compressionRatio", 1), 0.1);
+      const overhead = Math.max(numberValue("payloadOverhead", 10), 0) / 100;
+      const rawObservationMB = (views * res * res * 3 * bpc) / 1e6 / compression;
+      const observationMB = rawObservationMB * (1 + overhead);
+      return {
+        views, res, bpc, compression, overhead,
+        rawObservationMB, observationMB,
+        stepMB: observationMB
+      };
+    }
+
+    function autoWeightGB() {
+      const key = selectValue("modelSel");
+      const model = MODELS[key];
+      if (key === "custom" || !model) return null;
+      const paramsB = selectValue("syncScope") === "full" ? model.full : model.action;
+      return paramsB * (DTYPE_BYTES[selectValue("publishDtype")] || 2);
+    }
+
+    function syncWeightField() {
+      const custom = selectValue("modelSel") === "custom";
+      const field = $("weightPayload");
+      field.readOnly = !custom;
+      if (!custom) field.value = autoWeightGB().toFixed(1);
+    }
+
+    function transportMs(payload, robotGbps, intraGBps) {
+      const obsWireMs = (payload.observationMB * 8) / robotGbps;
+      const obsH2dMs = payload.observationMB / intraGBps;
+      return {
+        obsWireMs, obsH2dMs,
+        obsMs: obsWireMs + obsH2dMs,
+        totalMs: obsWireMs + obsH2dMs
+      };
+    }
+
+    function readInputs() {
+      const N = Math.max(numberValue("robotCount", 100), 1);
+      const f = Math.max(numberValue("frequency", 60), 1);
+      const C = Math.max(numberValue("chunkLength", 50), 1);
+      const H = Math.max(numberValue("horizon", 100), 1);
+      const payload = derivedPayload();
+      const autoW = autoWeightGB();
+      const W = autoW === null
+        ? Math.max(numberValue("weightPayload", 7.2), 0.1)
+        : autoW;
+      const gb = Math.max(numberValue("globalBatch", 256), 1);
+      const ue = Math.max(numberValue("updateEpoch", 4), 1);
+      const weightLag = Math.max(Math.floor(numberValue("weightLag", 1)), 1);
+      const tputPerGpu = Math.max(numberValue("trainTput", 5), 0.1);
+      const Rprod = (N * f) / H;
+      const Raction = N * f;
+      const Tcollect = gb / Rprod;
+      const TgpuNeeded = (Rprod * ue) / tputPerGpu;
+      const G = Math.max(numberValue("rolloutGpusPerNode", 4), 1);
+      const Gtrain = Math.max(numberValue("trainGpusPerNode", 8), 1);
+      const BRobot = Math.max(numberValue("robotLinkBw", 10), 0.1);
+      const BCross = Math.max(numberValue("crossBw", 400), 0.1);
+      const BRolloutInter = Math.max(numberValue("rolloutInterBw", 400), 0.1);
+      const BRolloutIntra = Math.max(numberValue("rolloutIntraBw", 64), 0.1);
+      const robotsPerRolloutGpu = Math.max(Math.floor(numberValue("robotsPerRolloutGpu", 4)), 1);
+      const inferMs = Math.max(numberValue("inferMs", 42), 0.1);
+      const jitterPct = Math.max(numberValue("jitterPct", 30), 0);
+      const tx = transportMs(payload, BRobot, BRolloutIntra);
+      return {
+        N, f, C, H,
+        rtcEnabled: Boolean($("rtcEnabled")?.checked),
+        modelKey: selectValue("modelSel"),
+        modelLabel: MODELS[selectValue("modelSel")]?.label || "Custom",
+        scopeLabel: selectValue("syncScope") === "full" ? "Full weights" : "Action head only",
+        dtypeLabel: selectValue("publishDtype").toUpperCase(),
+        W, G, Gtrain, BRobot, BCross, BRolloutInter, BRolloutIntra,
+        weightPath: selectValue("weightPath") === "direct" ? "direct" : "optimal",
+        robotsPerRolloutGpu, inferMs, jitterPct, gb, ue, weightLag, tputPerGpu, payload, tx, Rprod, Raction, Tcollect, TgpuNeeded,
+        updatePeriod: Tcollect
+      };
+    }
+
+    function compute(input) {
+      const windowMs = (input.C / (2 * input.f)) * 1000;
+      const jitterMs = input.inferMs * input.jitterPct / 100;
+      const basePerRobotMs = input.tx.totalMs + input.inferMs;
+      const perRobotMs = basePerRobotMs + jitterMs;
+      const rtcMaxRobotsPerGpu = Math.max(0, Math.floor(windowMs / perRobotMs));
+      const perCard = input.robotsPerRolloutGpu;
+      const feasible = !input.rtcEnabled || (rtcMaxRobotsPerGpu > 0 && perCard <= rtcMaxRobotsPerGpu);
+      const cardsNeeded = Math.ceil(input.N / perCard);
+      const rolloutNodesNeeded = Math.ceil(cardsNeeded / input.G);
+      const maxNodeRanks = Math.min(input.G, cardsNeeded);
+      const minNodeRanks = cardsNeeded - (rolloutNodesNeeded - 1) * input.G;
+      const Tgpu = Math.ceil(input.TgpuNeeded);
+      const Mtrain = Math.ceil(Tgpu / input.Gtrain);
+
+      const rolloutIntraBroadcastPerGpuGB = maxNodeRanks > 1 ? input.W : 0;
+      const rolloutIntraSec = rolloutIntraBroadcastPerGpuGB / input.BRolloutIntra;
+      const rolloutInterBroadcastPerNodeGB = rolloutNodesNeeded > 1 ? input.W : 0;
+      const rolloutInterSec = rolloutInterBroadcastPerNodeGB > 0
+        ? (rolloutInterBroadcastPerNodeGB * 8) / input.BRolloutInter
+        : 0;
+
+      const directCrossBytesGB = cardsNeeded * input.W;
+      const hierarchicalCrossBytesGB = input.W;
+      const directCrossSec = feasible ? (directCrossBytesGB * 8) / input.BCross : Infinity;
+      const hierarchicalCrossSec = (hierarchicalCrossBytesGB * 8) / input.BCross;
+      const directEffectiveSec = directCrossSec;
+      const hierarchicalEffectiveSec = Math.max(hierarchicalCrossSec, rolloutInterSec, rolloutIntraSec);
+      const hierarchicalStageTimes = { L1: hierarchicalCrossSec, L2: rolloutInterSec, L3: rolloutIntraSec };
+      const bottleneckTolerance = Math.max(hierarchicalEffectiveSec * 1e-9, 1e-12);
+      const hierarchicalBottleneck = Object.entries(hierarchicalStageTimes)
+        .filter(([, seconds]) => seconds > 0 && Math.abs(seconds - hierarchicalEffectiveSec) <= bottleneckTolerance)
+        .map(([level]) => level)
+        .join(" / ");
+      const selectedDirect = input.weightPath === "direct";
+      const selectedCrossBytesGB = selectedDirect ? directCrossBytesGB : hierarchicalCrossBytesGB;
+      const selectedEffectiveSec = selectedDirect ? directEffectiveSec : hierarchicalEffectiveSec;
+      const rolloutDurationSec = input.H / input.f;
+      const policyDeadline = input.weightLag * rolloutDurationSec;
+      const fixedStagesMeetDeadline = selectedDirect || Math.max(rolloutInterSec, rolloutIntraSec) <= policyDeadline;
+      const weightRequiredGbps = feasible && fixedStagesMeetDeadline
+        ? (selectedCrossBytesGB * 8) / policyDeadline
+        : Infinity;
+      const rolloutWindowsNeeded = feasible ? Math.max(1, Math.ceil(selectedEffectiveSec / rolloutDurationSec)) : Infinity;
+
+      const perCardByF = {};
+      FREQS.forEach((frequency) => {
+        const w = (input.C / (2 * frequency)) * 1000;
+        perCardByF[frequency] = Math.max(0, Math.floor(w / perRobotMs));
+      });
+
+      const trajectoryPayloadMB = input.H * input.payload.stepMB;
+      const replayMBps = input.Raction * input.payload.stepMB;
+      const replayGbps = (replayMBps * 8) / 1000;
+      const tailRobots = input.N - (cardsNeeded - 1) * perCard;
+      const rtcCriticalPathSec = (perCard * perRobotMs) / 1000;
+      const chunkCoverageSec = input.C / input.f;
+      const gpuInferenceUtilization = (perCard * input.inferMs / 1000) / chunkCoverageSec;
+
+      return {
+        feasible, windowMs, jitterMs, basePerRobotMs, perRobotMs, rtcMaxRobotsPerGpu, perCard, perCardByF,
+        cardsNeeded, rolloutNodesNeeded, maxNodeRanks, minNodeRanks, tailRobots,
+        Tgpu, Mtrain, rolloutDurationSec, policyDeadline, rolloutWindowsNeeded, weightRequiredGbps,
+        rolloutIntraBroadcastPerGpuGB, rolloutIntraSec,
+        rolloutInterBroadcastPerNodeGB, rolloutInterSec,
+        directCrossBytesGB, hierarchicalCrossBytesGB,
+        directCrossSec, hierarchicalCrossSec,
+        directEffectiveSec, hierarchicalEffectiveSec, hierarchicalBottleneck,
+        selectedCrossBytesGB, selectedEffectiveSec,
+        trajectoryPayloadMB, replayMBps, replayGbps, rtcCriticalPathSec, gpuInferenceUtilization,
+        stepIntervalSec: 1 / input.f,
+        chunkCoverageSec
+      };
+    }
+    const $ = (id) => document.getElementById(id);
+    const tooltipLayer = $("tooltipLayer");
+    let activeTooltipTarget = null;
+
+    function numberValue(id, fallback) {
+      const element = $(id);
+      if (!element || String(element.value).trim() === "") return fallback;
+      const value = Number(element.value);
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function selectValue(id) {
+      return $(id)?.value || "";
+    }
+
+    function fmt(value) {
+      if (!Number.isFinite(value)) return "&mdash;";
+      if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString();
+      if (value !== 0 && Math.abs(value) < 0.05) return "&lt;0.1";
+      if (Math.abs(value) < 0.05) return "0";
+      return value.toFixed(1);
+    }
+
+    function fmtInt(value) {
+      return Number.isFinite(value) ? Math.round(value).toLocaleString() : "infeasible";
+    }
+
+    function fmtMs(value) {
+      return `${fmt(value)} ms`;
+    }
+
+    function fmtSeconds(value) {
+      if (!Number.isFinite(value)) return "infeasible";
+      return value >= 1 ? `${fmt(value)} s` : `${fmt(value * 1000)} ms`;
+    }
+
+    function fmtGB(value) {
+      return `${fmt(value)} GB`;
+    }
+
+    function fmtMBps(value) {
+      return value >= 1000 ? `${fmt(value / 1000)} GB/s` : `${fmt(value)} MB/s`;
+    }
+
+    function fmtGbps(value) {
+      if (!Number.isFinite(value)) return "infeasible";
+      return value >= 1000 ? `${fmt(value / 1000)} Tbps` : `${fmt(value)} Gbps`;
+    }
+
+    function fmtGBps(value) {
+      return `${fmt(value)} GB/s`;
+    }
+
+    function capacityClass(required, capacity) {
+      if (!Number.isFinite(required) || required > capacity) return "bad";
+      if (required <= capacity * 0.75) return "good";
+      return "warn";
+    }
+
+    function timingClass(required, budget) {
+      if (!Number.isFinite(required) || required > budget) return "bad";
+      if (required <= budget * 0.75) return "good";
+      return "warn";
+    }
+
+    function classLabel(state) {
+      return state === "good" ? "OK" : state === "warn" ? "Tight" : "Over";
+    }
+
+    function statusPill(label, state = "neutral") {
+      return `<span class="status ${state}">${label}</span>`;
+    }
+
+    function capacityStatus(required, capacity) {
+      const state = capacityClass(required, capacity);
+      return statusPill(classLabel(state), state);
+    }
+
+    function timingStatus(required, budget) {
+      const state = timingClass(required, budget);
+      return statusPill(classLabel(state), state);
+    }
+
+    function row(cells, cls = "") {
+      return `<tr class="${cls}">${cells.map((cell, index) =>
+        index === 0 ? `<th scope="row">${cell}</th>` : `<td>${cell}</td>`).join("")}</tr>`;
+    }
+
+    function setRows(id, rows) {
+      $(id).innerHTML = rows.join("");
+    }
+
+    function metric(label, value, sub = "", state = "") {
+      const cls = state ? `metric state-${state}` : "metric";
+      return `<div class="${cls}"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+    }
+
+    function renderSummary(input, data) {
+      const inferenceState = input.rtcEnabled ? (data.feasible ? "good" : "bad") : "";
+      const rtcSummary = input.rtcEnabled ? `RTC max ${fmtInt(data.rtcMaxRobotsPerGpu)}` : "RTC disabled";
+      const weightState = capacityClass(data.weightRequiredGbps, input.BCross);
+      const replayState = capacityClass(data.replayGbps, input.BCross);
+      $("inferenceSummary").innerHTML = [
+        metric("Robots / GPU", fmtInt(data.perCard), rtcSummary, inferenceState),
+        metric("Rollout GPUs", fmtInt(data.cardsNeeded), `${fmtInt(input.N)} robots`, inferenceState),
+        metric("Rollout nodes", fmtInt(data.rolloutNodesNeeded), `${fmtInt(input.G)} GPUs / node`, inferenceState)
+      ].join("");
+      $("trainingSummary").innerHTML = [
+        metric("Fleet production", `${fmt(input.Rprod)} traj/s`, `${fmtInt(input.N)} robots`),
+        metric("Train GPUs", fmtInt(data.Tgpu), `${fmt(input.tputPerGpu)} traj/s each`),
+        metric("Train nodes", fmtInt(data.Mtrain), `${fmtInt(input.Gtrain)} GPUs / node`)
+      ].join("");
+      const selectedBottleneck = input.weightPath === "direct" ? "L1" : data.hierarchicalBottleneck;
+      $("networkSummary").innerHTML = [
+        metric("L0 robot link", fmtGbps(input.BRobot), "per robot"),
+        metric("L1 weight need", fmtGbps(data.weightRequiredGbps), `${fmtGbps(input.BCross)} available; bottleneck ${selectedBottleneck}`, weightState),
+        metric("L1 replay need", fmtGbps(data.replayGbps), `${fmtGbps(input.BCross)} available`, replayState)
+      ].join("");
+    }
+
+    function renderArchitecture(input, data) {
+      const weightState = capacityClass(data.weightRequiredGbps, input.BCross);
+      const replayState = capacityClass(data.replayGbps, input.BCross);
+      $("architectureDiagram").innerHTML = `
+        <div class="architecture-flow" role="img" aria-label="Robot, rollout, replay, and training resource flow with four network levels.">
+          <div class="arch-zone">
+            <div class="arch-kicker">Robot fleet</div>
+            <div class="arch-stat">${fmtInt(input.N)}</div>
+            <div class="arch-unit">robots at ${fmt(input.f)} Hz</div>
+          </div>
+          <div class="arch-arrow">
+            <span>Observations &rarr;</span><strong>L0 ${fmtGbps(input.BRobot)}</strong><span>&larr; Actions</span>
+          </div>
+          <div class="arch-zone arch-zone-rollout">
+            <div class="arch-kicker">Rollout cluster</div>
+            <div class="arch-stat">${fmtInt(data.cardsNeeded)} GPUs</div>
+            <div class="arch-unit">${fmtInt(data.rolloutNodesNeeded)} nodes</div>
+            <div class="arch-fabrics">
+              <span>L2 ${fmtGbps(input.BRolloutInter)} / node / direction</span>
+              <span>L3 PCIe ${fmtGBps(input.BRolloutIntra)} / GPU / direction</span>
+            </div>
+          </div>
+          <div class="arch-arrow arch-arrow-wide">
+            <span>Replay stream &rarr; ${fmtGbps(data.replayGbps)} ${statusPill(classLabel(replayState), replayState)}</span>
+            <strong>L1 ${fmtGbps(input.BCross)}</strong>
+            <span>&larr; Weights ${fmtGbps(data.weightRequiredGbps)} ${statusPill(classLabel(weightState), weightState)}</span>
+          </div>
+          <div class="arch-zone">
+            <div class="arch-kicker">Training cluster</div>
+            <div class="arch-stat">${fmtInt(data.Tgpu)} GPUs</div>
+            <div class="arch-unit">${fmtInt(data.Mtrain)} nodes</div>
+          </div>
+        </div>`;
+    }
+
+    function renderRtc(input, data) {
+      const rows = [
+        row(["RTC (Real Time Chunking)", input.rtcEnabled ? statusPill("On", "good") : statusPill("Off", "neutral"), "input"]),
+        row(["Action chunk length", `${fmtInt(input.C)} actions`, "C"]),
+        row(["Robot control-step period", fmtMs(data.stepIntervalSec * 1000), "1 / f"]),
+        row(["Transport obs/action", fmtMs(input.tx.totalMs), `S_obs x 8 / B_L0 + S_obs / B_L3`]),
+        row(["Inference", fmtMs(input.inferMs), "batch 1"]),
+        row(["Inference jitter buffer", fmtMs(data.jitterMs), `${fmt(input.jitterPct)}% of T_infer`]),
+        row(["Budget per robot", fmtMs(data.perRobotMs), "transport_obs_action + inference + jitter"])
+      ];
+      if (input.rtcEnabled) {
+        rows.splice(3, 0, row(["Real-time window", fmtMs(data.windowMs), "C / (2f)"]));
+        rows.push(row(["GPU scheduled load", fmtSeconds(data.rtcCriticalPathSec), `${fmtInt(data.perCard)} robots x budget ${timingStatus(data.rtcCriticalPathSec, data.windowMs / 1000)}`]));
+      }
+      setRows("rtcTable", rows);
+    }
+
+    function renderCapacity(input, data) {
+      $("frequencySweep").hidden = !input.rtcEnabled;
+      if (!input.rtcEnabled) {
+        setRows("batchTable", [
+          row(["Configured robots / GPU", "input", `<strong>${fmtInt(data.perCard)}</strong>`]),
+          row(["Transport obs/action", "per robot", fmtMs(input.tx.totalMs)]),
+          row(["Inference", "per robot", fmtMs(input.inferMs)]),
+          row(["Estimated GPU inference utilization", "robots / GPU x T_infer / (C / f)", `<strong>${fmt(data.gpuInferenceUtilization * 100)}%</strong>`]),
+          row(["Inference jitter buffer", `${fmt(input.jitterPct)}% x T_infer`, fmtMs(data.jitterMs)]),
+          row(["Budget per robot", "transport_obs_action + inference + jitter", fmtMs(data.perRobotMs)])
+        ]);
+        setRows("bmaxTable", [row(["RTC disabled", "RTC off", "RTC off", "RTC off"])]);
+        return;
+      }
+      setRows("batchTable", [
+        row(["Real-time window", "C / (2f)", fmtMs(data.windowMs)]),
+        row(["Transport obs/action", "per robot", fmtMs(input.tx.totalMs)]),
+        row(["Inference", "per robot", fmtMs(input.inferMs)]),
+        row(["Inference jitter buffer", `${fmt(input.jitterPct)}% x T_infer`, fmtMs(data.jitterMs)]),
+        row(["Budget per robot", "transport_obs_action + inference + jitter", fmtMs(data.perRobotMs)]),
+        row(["RTC max robots / GPU", "window / budget per robot", `<strong>${fmtInt(data.rtcMaxRobotsPerGpu)}</strong>`]),
+        row(["Configured robots / GPU", "input", `<strong>${fmtInt(data.perCard)}</strong> ${timingStatus(data.rtcCriticalPathSec, data.windowMs / 1000)}`])
+      ]);
+      setRows("bmaxTable", [
+        row(["RTC max robots / GPU", ...FREQS.map((frequency) => `<strong>${fmtInt(data.perCardByF[frequency])}</strong>`)]),
+        row(["Rollout GPUs", ...FREQS.map((frequency) => data.perCardByF[frequency] > 0 ? fmtInt(Math.ceil(input.N / data.perCardByF[frequency])) : "infeasible")]),
+        row(["Rollout nodes", ...FREQS.map((frequency) => data.perCardByF[frequency] > 0 ? fmtInt(Math.ceil(Math.ceil(input.N / data.perCardByF[frequency]) / input.G)) : "infeasible")])
+      ]);
+    }
+
+    function renderReplay(input, data) {
+      const state = capacityClass(data.replayGbps, input.BCross);
+      $("replayStatus").innerHTML = `${statusPill(classLabel(state), state)} <span class="arch-unit">${fmtGbps(data.replayGbps)} / ${fmtGbps(input.BCross)}</span>`;
+      setRows("replayTable", [
+        row(["Fleet action rate", `${fmt(input.Raction)} actions/s`, "N x f"]),
+        row(["Replay payload / action", `${fmt(input.payload.stepMB)} MB`, "observation payload"]),
+        row(["Replay ingest", fmtMBps(data.replayMBps), "action rate x payload / action"]),
+        row(["L1 replay bandwidth", fmtGbps(data.replayGbps), capacityStatus(data.replayGbps, input.BCross)])
+      ]);
+    }
+
+    function renderBalance(input, data) {
+      setRows("balanceTable", [
+        row(["Fleet production R_prod", `${fmt(input.Rprod)} trajectories/s`, "N x f / H"]),
+        row(["Train throughput / GPU", `${fmt(input.tputPerGpu)} trajectories/s`, "input"]),
+        row(["Update epoch", fmt(input.ue), "sample reuse"]),
+        row(["Train GPUs needed", `<strong>${fmtInt(data.Tgpu)}</strong>`, "R_prod x update_epoch / throughput"]),
+        row(["Train nodes", fmtInt(data.Mtrain), `${fmtInt(input.Gtrain)} GPUs / node`]),
+        row(["Robot control-step period", fmtSeconds(data.stepIntervalSec), "1 / f"]),
+        row(["Global batch collection time", fmtSeconds(input.Tcollect), "global batch / R_prod"])
+      ]);
+    }
+
+    function renderNetwork(input, data) {
+      const l2State = timingClass(data.rolloutInterSec, data.policyDeadline);
+      const l3State = timingClass(data.rolloutIntraSec, data.policyDeadline);
+      setRows("networkTable", [
+        row(["L0 Robot to node", "B_robot", "per robot", fmtGbps(input.BRobot), "Transport obs/action", statusPill("Input", "neutral")]),
+        row(["L1 Train to rollout", "B_cross", "per direction", fmtGbps(input.BCross), `Replay ${fmtGbps(data.replayGbps)}; weights ${fmtGbps(data.weightRequiredGbps)}`, `${capacityStatus(data.replayGbps, input.BCross)} ${capacityStatus(data.weightRequiredGbps, input.BCross)}`]),
+        row(["L2 Rollout node to node", "B_inter", "per node / direction", fmtGbps(input.BRolloutInter), `Weight sync ${fmtSeconds(data.rolloutInterSec)}`, statusPill(classLabel(l2State), l2State)]),
+        row(["L3 PCIe GPU path", "B_intra", "per GPU / direction", fmtGBps(input.BRolloutIntra), `Weight sync ${fmtSeconds(data.rolloutIntraSec)}`, statusPill(classLabel(l3State), l3State)])
+      ]);
+    }
+
+    function requiredForPath(input, data, path) {
+      if (!data.feasible) return Infinity;
+      if (path === "direct") return (data.directCrossBytesGB * 8) / data.policyDeadline;
+      if (Math.max(data.rolloutInterSec, data.rolloutIntraSec) > data.policyDeadline) return Infinity;
+      return (input.W * 8) / data.policyDeadline;
+    }
+
+    function renderWeightPaths(input, data) {
+      const directRequired = requiredForPath(input, data, "direct");
+      const hierarchicalRequired = requiredForPath(input, data, "optimal");
+      setRows("weightSyncTable", [
+        row(["Direct (P2P)", fmtGB(data.directCrossBytesGB), fmtSeconds(data.directCrossSec), "0", "0", `${fmtSeconds(data.directEffectiveSec)}<div class="arch-unit">Bottleneck L1</div>`, `${fmtGbps(directRequired)} ${capacityStatus(directRequired, input.BCross)}`], input.weightPath === "direct" ? "active-row" : ""),
+        row(["Hierarchical", fmtGB(data.hierarchicalCrossBytesGB), fmtSeconds(data.hierarchicalCrossSec), fmtSeconds(data.rolloutInterSec), fmtSeconds(data.rolloutIntraSec), `${fmtSeconds(data.hierarchicalEffectiveSec)}<div class="arch-unit">Bottleneck ${data.hierarchicalBottleneck}</div>`, `${fmtGbps(hierarchicalRequired)} ${capacityStatus(hierarchicalRequired, input.BCross)}`], input.weightPath === "optimal" ? "active-row" : "")
+      ]);
+      renderWeightChart(input, data);
+    }
+
+    function renderWeightChart(input, data) {
+      const width = 900, height = 280;
+      const pad = { left: 64, right: 24, top: 22, bottom: 46 };
+      const bMin = 1, bMax = 10000, yMin = 0.01;
+      const directAt = (bandwidth) => (data.directCrossBytesGB * 8) / bandwidth;
+      const hierarchicalAt = (bandwidth) => Math.max((input.W * 8) / bandwidth, data.rolloutInterSec, data.rolloutIntraSec);
+      const candidates = [directAt(bMin), hierarchicalAt(bMin), data.policyDeadline, 1].filter(Number.isFinite);
+      const yMax = Math.max(...candidates, yMin * 10);
+      const plotW = width - pad.left - pad.right, plotH = height - pad.top - pad.bottom;
+      const x = (bandwidth) => pad.left + (Math.log10(bandwidth) - Math.log10(bMin)) / 4 * plotW;
+      const y = (seconds) => {
+        const clamped = Math.min(Math.max(seconds, yMin), yMax);
+        return pad.top + (1 - (Math.log10(clamped) - Math.log10(yMin)) / (Math.log10(yMax) - Math.log10(yMin))) * plotH;
+      };
+      const samples = Array.from({ length: 100 }, (_, index) => bMin * Math.pow(bMax / bMin, index / 99));
+      const polyline = (fn) => samples.map((bandwidth) => `${x(bandwidth).toFixed(1)},${y(fn(bandwidth)).toFixed(1)}`).join(" ");
+      const xTicks = [1, 10, 100, 1000, 10000];
+      const deadlineY = y(data.policyDeadline);
+      const currentX = x(Math.min(Math.max(input.BCross, bMin), bMax));
+      $("weightSyncChart").innerHTML = `
+        <div class="chart-title"><strong>${input.modelLabel} · ${input.scopeLabel} · ${input.dtypeLabel}</strong><span>W = ${fmtGB(input.W)}</span></div>
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Weight synchronization time by L1 bandwidth.">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="#FFFFFF"/>
+          ${xTicks.map((tick) => `<line x1="${x(tick)}" y1="${pad.top}" x2="${x(tick)}" y2="${height - pad.bottom}" stroke="#E6E6E6"/><text x="${x(tick)}" y="${height - 22}" text-anchor="middle">${fmtGbps(tick)}</text>`).join("")}
+          <line x1="${pad.left}" y1="${deadlineY}" x2="${width - pad.right}" y2="${deadlineY}" stroke="#8C8C8C" stroke-dasharray="5 5"/>
+          <text x="${width - pad.right}" y="${deadlineY - 6}" text-anchor="end">deadline ${fmtSeconds(data.policyDeadline)}</text>
+          <line x1="${currentX}" y1="${pad.top}" x2="${currentX}" y2="${height - pad.bottom}" stroke="#000000" stroke-dasharray="4 5"/>
+          <polyline fill="none" stroke="#0071C5" stroke-width="3" points="${polyline(directAt)}"/>
+          <polyline fill="none" stroke="#76B900" stroke-width="3" points="${polyline(hierarchicalAt)}"/>
+          <line x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}" stroke="#8C8C8C"/>
+          <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}" stroke="#8C8C8C"/>
+          <text x="${width / 2}" y="${height - 3}" text-anchor="middle">L1 bandwidth (log scale)</text>
+        </svg>
+        <div class="chart-legend"><span><i class="swatch direct"></i>Direct (P2P)</span><span><i class="swatch hierarchical"></i>Hierarchical</span></div>`;
+    }
+
+    function renderTrainBudget(input, data) {
+      setRows("trainBudgetTable", [
+        row(["Fleet production", `${fmt(input.Rprod)} trajectories/s`, "N x f / H"]),
+        row(["Global batch collection time", fmtSeconds(input.Tcollect), "global batch / R_prod"]),
+        row(["Rollout horizon", `${fmtInt(input.H)} steps`, "H"]),
+        row(["Control frequency", `${fmt(input.f)} Hz`, "f"]),
+        row(["Rollout duration", fmtSeconds(data.rolloutDurationSec), "H / f"]),
+        row(["Allowed weight lag", `${fmtInt(input.weightLag)} rollout${input.weightLag === 1 ? "" : "s"}`, "input"]),
+        row(["Weight sync deadline", fmtSeconds(data.policyDeadline), "weight lag x H / f"]),
+        row(["Selected effective sync", fmtSeconds(data.selectedEffectiveSec), input.weightPath === "direct" ? "L1 transfer; bottleneck L1" : `max(L1, L2, L3); bottleneck ${data.hierarchicalBottleneck}`])
+      ]);
+    }
+
+    function renderCluster(input, data) {
+      setRows("clusterTable", [
+        row(["Policy payload W", fmtGB(input.W), `${input.modelLabel}; ${input.scopeLabel}; ${input.dtypeLabel}`]),
+        row(["Robots per rollout GPU", fmtInt(data.perCard), "input"]),
+        row(["RTC max robots / GPU", input.rtcEnabled ? fmtInt(data.rtcMaxRobotsPerGpu) : "disabled", input.rtcEnabled ? "calculated limit" : "RTC off"]),
+        row(["Rollout GPUs", fmtInt(data.cardsNeeded), "ceil(N / robots per GPU)"]),
+        row(["Rollout nodes", fmtInt(data.rolloutNodesNeeded), `up to ${fmtInt(input.G)} GPUs each`]),
+        row(["Active GPUs / node", `${fmtInt(data.minNodeRanks)} to ${fmtInt(data.maxNodeRanks)}`, "tail to full node"]),
+        row(["Tail-GPU robots", fmtInt(data.tailRobots), "last active GPU"]),
+        row(["Train GPUs", fmtInt(data.Tgpu), "output"]),
+        row(["Train nodes", fmtInt(data.Mtrain), `up to ${fmtInt(input.Gtrain)} GPUs each`])
+      ]);
+    }
+
+    function renderPayload(input, data) {
+      $("payloadDerived").innerHTML = `<strong>${fmt(input.payload.observationMB)} MB</strong> per action; <strong>${fmt(data.trajectoryPayloadMB)} MB</strong> per trajectory.`;
+      $("jitterShown").innerHTML = `<strong>${fmtMs(data.jitterMs)}</strong>`;
+    }
+
+    function requiredInputMissing() {
+      const ids = [
+        "robotCount", "frequency", "chunkLength", "horizon", "robotLinkBw", "crossBw",
+        "rolloutInterBw", "rolloutIntraBw", "rolloutGpusPerNode", "robotsPerRolloutGpu", "inferMs", "jitterPct", "globalBatch",
+        "updateEpoch", "weightLag", "trainTput", "trainGpusPerNode", "cameraViews", "resolution",
+        "bytesPerChannel", "compressionRatio", "payloadOverhead"
+      ];
+      if (selectValue("modelSel") === "custom") ids.push("weightPayload");
+      return ids.some((id) => !$(id) || String($(id).value).trim() === "" || !Number.isFinite(Number($(id).value)));
+    }
+
+    function renderIncomplete() {
+      ["inferenceSummary", "trainingSummary", "networkSummary", "architectureDiagram", "rtcTable", "batchTable",
+       "bmaxTable", "replayTable", "balanceTable", "networkTable", "weightSyncTable", "weightSyncChart",
+       "trainBudgetTable", "clusterTable", "replayStatus"].forEach((id) => { if ($(id)) $(id).innerHTML = ""; });
+      $("inferenceSummary").innerHTML = metric("Input required", "&mdash;", "Complete every numeric field.", "bad");
+    }
+
+    function render() {
+      syncWeightField();
+      if (requiredInputMissing()) { renderIncomplete(); return; }
+      const input = readInputs();
+      const data = compute(input);
+      renderSummary(input, data);
+      renderArchitecture(input, data);
+      renderPayload(input, data);
+      renderRtc(input, data);
+      renderCapacity(input, data);
+      renderReplay(input, data);
+      renderBalance(input, data);
+      renderNetwork(input, data);
+      renderWeightPaths(input, data);
+      renderTrainBudget(input, data);
+      renderCluster(input, data);
+    }
+
+    function positionTooltip(target) {
+      if (!target || !tooltipLayer.classList.contains("visible")) return;
+      const rect = target.getBoundingClientRect();
+      const margin = 10, gap = 8;
+      tooltipLayer.style.width = `${Math.min(300, window.innerWidth - margin * 2)}px`;
+      const tipRect = tooltipLayer.getBoundingClientRect();
+      let left = rect.right + gap;
+      if (left + tipRect.width > window.innerWidth - margin) left = rect.left - tipRect.width - gap;
+      tooltipLayer.style.left = `${Math.max(margin, left)}px`;
+      tooltipLayer.style.top = `${Math.max(margin, Math.min(rect.top, window.innerHeight - tipRect.height - margin))}px`;
+    }
+
+    function showTooltip(target) {
+      if (!target?.dataset?.tip) return;
+      activeTooltipTarget = target;
+      tooltipLayer.textContent = target.dataset.tip;
+      tooltipLayer.classList.add("visible");
+      positionTooltip(target);
+    }
+
+    function hideTooltip() {
+      activeTooltipTarget = null;
+      tooltipLayer.classList.remove("visible");
+    }
+
+    document.querySelectorAll("input, select").forEach((element) => {
+      element.addEventListener("input", render);
+      element.addEventListener("change", render);
+    });
+    document.querySelectorAll("[data-tip]").forEach((element) => {
+      if (!element.hasAttribute("tabindex")) element.setAttribute("tabindex", "0");
+      element.addEventListener("mouseenter", () => showTooltip(element));
+      element.addEventListener("mouseleave", hideTooltip);
+      element.addEventListener("focus", () => showTooltip(element));
+      element.addEventListener("blur", hideTooltip);
+    });
+    window.addEventListener("scroll", () => positionTooltip(activeTooltipTarget), true);
+    window.addEventListener("resize", () => positionTooltip(activeTooltipTarget));
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideTooltip(); });
+    render();
+
+  </script>
+</body>
+</html>
