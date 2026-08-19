@@ -203,7 +203,7 @@
         <summary>Robot Fleet</summary>
         <div class="group-body">
           <div class="field"><div class="label-line" data-tip="Enter the number of physical robots to operate."><label for="robotCount">Robot fleet N_robot</label></div><input id="robotCount" type="number" min="1" step="1" value="100"></div>
-          <div class="field"><div class="label-line" data-tip="Select the robot control frequency."><label for="frequency">Control frequency f (Hz)</label></div><select id="frequency"><option value="30">30</option><option selected value="60">60</option><option value="90">90</option></select></div>
+          <div class="field"><div class="label-line" data-tip="Enter the robot control frequency as an integer."><label for="frequency">Control frequency f (Hz)</label></div><input id="frequency" type="number" min="1" step="1" value="60" inputmode="numeric"></div>
         </div>
       </details>
       <details open>
@@ -440,7 +440,7 @@
 
     function readInputs() {
       const N = Math.max(numberValue("robotCount", 100), 1);
-      const f = Math.max(numberValue("frequency", 60), 1);
+      const f = Math.max(Math.round(numberValue("frequency", 60)), 1);
       const C = Math.max(numberValue("chunkLength", 50), 1);
       const H = Math.max(numberValue("horizon", 100), 1);
       const payload = derivedPayload();
@@ -947,6 +947,10 @@
       tooltipLayer.classList.remove("visible");
     }
 
+    $("frequency").addEventListener("change", (event) => {
+      if (String(event.target.value).trim() === "") return;
+      event.target.value = String(Math.max(Math.round(numberValue("frequency", 60)), 1));
+    });
     document.querySelectorAll("input, select").forEach((element) => {
       element.addEventListener("input", render);
       element.addEventListener("change", render);
